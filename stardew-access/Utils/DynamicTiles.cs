@@ -426,7 +426,8 @@ public class DynamicTiles
         // Translated name, E.G> "Mill" becomes "Molino" for Spanish.
         // not all buildings have translated names, E.G. "Petbowl" and "Farmhouse" remain untranslated.
         // TODO add translation keys for untranslated building names.
-        string name = TokenParser.ParseText(building.GetData().Name);
+        var buildingData = building.GetData();
+        string name = TokenParser.ParseText(buildingData?.Name ?? building.buildingType.Value ?? "Unknown Building");
         int buildingTileX = building.tileX.Value;
         int buildingTileY = building.tileY.Value;
         // Calculate differences in x and y coordinates
