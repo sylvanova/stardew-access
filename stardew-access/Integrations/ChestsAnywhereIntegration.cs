@@ -703,6 +703,16 @@ internal static class ChestsAnywhereIntegration
             return false;
         }
 
+        bool editActive = _isEditFormOpen || IsEditFormActive(overlay);
+        if (!editActive)
+        {
+            string? hoverText = GetStringMemberValue(overlay, "HoverText");
+            if (string.IsNullOrWhiteSpace(hoverText))
+            {
+                return false;
+            }
+        }
+
         int x = Game1.getMouseX(true);
         int y = Game1.getMouseY(true);
         InvokeReceiveLeftClick(overlay, x, y);
