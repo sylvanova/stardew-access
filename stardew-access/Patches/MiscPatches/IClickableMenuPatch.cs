@@ -5,6 +5,7 @@ using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 using stardew_access.Features;
+using stardew_access.Integrations;
 using stardew_access.Translation;
 using stardew_access.Utils;
 using StardewValley;
@@ -405,6 +406,7 @@ internal class IClickableMenuPatch : IPatch
                 break;
         }
 
+        stardew_access.Integrations.ChestsAnywhereIntegration.NotifyMenuClosed(menu);
         MainClass.ScreenReader.Cleanup();
         InventoryUtils.Cleanup();
         TextBoxPatch.activeTextBoxes = "";

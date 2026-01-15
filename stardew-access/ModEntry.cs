@@ -126,6 +126,10 @@ public class MainClass : Mod
         }
         TileManager.Initialize();
         ModConfigMenu.Create(modHelper!, ModManifest, config!);
+        if (PatchManager.HarmonyInstance != null)
+        {
+            ChestsAnywhereOverlayPatch.TryApply(PatchManager.HarmonyInstance);
+        }
     }
 
     private void OnDayStarted(object? sender, DayStartedEventArgs? e)

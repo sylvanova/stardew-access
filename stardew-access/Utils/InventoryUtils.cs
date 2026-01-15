@@ -28,7 +28,9 @@ internal static class InventoryUtils
         string highlightedItemPrefix = "",
         string highlightedItemSuffix = "",
         int? hoverX = null,
-        int? hoverY = null)
+        int? hoverY = null,
+        string? speechPrefix = null,
+        bool interrupt = true)
     {
         if (NarrateHoveredSlotAndReturnIndex(inventoryMenu,
                 giveExtraDetails,
@@ -38,12 +40,36 @@ internal static class InventoryUtils
                 highlightedItemPrefix,
                 highlightedItemSuffix,
                 hoverX,
-                hoverY) == -999)
+                hoverY,
+                speechPrefix,
+                interrupt) == -999)
         {
             return false;
         }
 
         return true;
+    }
+
+    internal static int GetHoveredSlotIndex(InventoryMenu? inventoryMenu, int? hoverX = null, int? hoverY = null)
+    {
+        if (inventoryMenu == null)
+        {
+            return -999;
+        }
+
+        int mouseX = hoverX ?? Game1.getMouseX(true);
+        int mouseY = hoverY ?? Game1.getMouseY(true);
+        List<ClickableComponent> inventory = inventoryMenu.inventory;
+
+        for (int i = 0; i < inventory.Count; i++)
+        {
+            if (inventory[i].containsPoint(mouseX, mouseY))
+            {
+                return i;
+            }
+        }
+
+        return -999;
     }
 
     internal static int NarrateHoveredSlotAndReturnIndex(InventoryMenu? inventoryMenu,
@@ -54,13 +80,16 @@ internal static class InventoryUtils
         string highlightedItemPrefix = "",
         string highlightedItemSuffix = "",
         int? hoverX = null,
-        int? hoverY = null)
+        int? hoverY = null,
+        string? speechPrefix = null,
+        bool interrupt = true)
     {
         giveExtraDetails ??= !MainClass.Config.DisableInventoryVerbosity;
         int mouseX = hoverX ?? Game1.getMouseX(true);
         int mouseY = hoverY ?? Game1.getMouseY(true);
         List<ClickableComponent> inventory = inventoryMenu!.inventory;
         IList<Item> actualInventory = inventoryMenu.actualInventory;
+        string prefix = string.IsNullOrWhiteSpace(speechPrefix) ? "" : speechPrefix;
 
         for (int i = 0; i < inventory.Count; i++)
         {
@@ -69,7 +98,8 @@ internal static class InventoryUtils
             if ((inventoryMenu.playerInventory || inventoryMenu.showGrayedOutSlots) && i >= actualInventory.Count)
             {
                 // For locked slots
-                CheckAndSpeak(Translator.Instance.Translate("inventory_util-locked_slot"), i);
+                string lockedText = Translator.Instance.Translate("inventory_util-locked_slot");
+                CheckAndSpeak($"{prefix}{lockedText}", i, lockedText, interrupt);
                 prevSlotIndex = i;
                 return i;
             }
@@ -77,7 +107,8 @@ internal static class InventoryUtils
             if (i >= actualInventory.Count || actualInventory[i] == null)
             {
                 // For empty slot
-                CheckAndSpeak(Translator.Instance.Translate("inventory_util-empty_slot"), i);
+                string emptyText = Translator.Instance.Translate("inventory_util-empty_slot");
+                CheckAndSpeak($"{prefix}{emptyText}", i, emptyText, interrupt);
                 prevSlotIndex = i;
                 return i;
             }
@@ -94,7 +125,7 @@ internal static class InventoryUtils
                 highlightedItemPrefix,
                 highlightedItemSuffix);
 
-            CheckAndSpeak(itemDetails, i);
+            CheckAndSpeak($"{prefix}{itemDetails}", i, itemDetails, interrupt);
             prevSlotIndex = i;
             return i;
         }
@@ -426,6 +457,6 @@ internal static class InventoryUtils
         prevSlotIndex = -999;
     }
 
-    private static void CheckAndSpeak(string toSpeak, int hoveredInventoryIndex)
-        => MainClass.ScreenReader.SayWithMenuChecker(toSpeak, true, $"{toSpeak}:{hoveredInventoryIndex}");
+    private static void CheckAndSpeak(string toSpeak, int hoveredInventoryIndex, string? queryText = null, bool interrupt = true)
+        => MainClass.ScreenReader.SayWithMenuChecker(toSpeak, interrupt, $"{queryText ?? toSpeak}:{hoveredInventoryIndex}");
 }

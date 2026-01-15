@@ -1,6 +1,9 @@
 using HarmonyLib;
 using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Input;
+using stardew_access.Integrations;
 using stardew_access.Utils;
+using StardewModdingAPI;
 using StardewValley;
 using StardewValley.Menus;
 
@@ -21,6 +24,7 @@ namespace stardew_access.Patches
         {
             try
             {
+                ChestsAnywhereIntegration.CacheOverlayIfAvailable(__instance);
                 int x = Game1.getMouseX(true), y = Game1.getMouseY(true); // Mouse x and y position
 
                 if (MainClass.Config.SnapToFirstSecondaryInventorySlotKey.JustPressed() &&
@@ -46,14 +50,21 @@ namespace stardew_access.Patches
                     return;
                 }
 
-                // Player inventory
-                if (InventoryUtils.NarrateHoveredSlot(__instance.inventory, giveExtraDetails: true))
+                if (ChestsAnywhereIntegration.TrySpeakOverlayUi(__instance))
                 {
                     return;
                 }
 
-                // Other inventory
-                InventoryUtils.NarrateHoveredSlot(__instance.ItemsToGrabMenu, giveExtraDetails: true);
+                bool isChestHovered = InventoryUtils.GetHoveredSlotIndex(__instance.ItemsToGrabMenu) != -999;
+                if (ChestsAnywhereIntegration.TryHandleAnnouncement(__instance, __instance.ItemsToGrabMenu.actualInventory, isChestHovered))
+                {
+                    return;
+                }
+
+                if (NarrateHoveredSlotsWithChestsAnywherePriority(__instance))
+                {
+                    return;
+                }
             }
             catch (Exception e)
             {
@@ -93,7 +104,7 @@ namespace stardew_access.Patches
                 translationKey = "menu-item_grab-color_picker_button";
                 translationTokens = new
                 {
-                    is_enabled = __instance.chestColorPicker.visible ? 1 : 0
+                    is_enabled = __instance.chestColorPicker != null && __instance.chestColorPicker.visible ? 1 : 0
                 };
             }
             else if (__instance.junimoNoteIcon != null && __instance.junimoNoteIcon.containsPoint(x, y))
@@ -118,7 +129,7 @@ namespace stardew_access.Patches
                     MainClass.ScreenReader.TranslateAndSayWithMenuChecker("menu-item_grab-chest_colors", true, new
                     {
                         index = i,
-                        is_selected = i == __instance.chestColorPicker.colorSelection ? 1 : 0
+                        is_selected = __instance.chestColorPicker != null && i == __instance.chestColorPicker.colorSelection ? 1 : 0
                     });
 
                     return true;
@@ -147,6 +158,21 @@ namespace stardew_access.Patches
                 true,
                 new { shipped_item_name = pluralizedName });
             return true;
+        }
+
+        private static bool NarrateHoveredSlotsWithChestsAnywherePriority(ItemGrabMenu __instance)
+        {
+            bool useNonInterrupt = ChestsAnywhereIntegration.ShouldUseNonInterruptNextItem();
+            if (InventoryUtils.NarrateHoveredSlot(__instance.ItemsToGrabMenu, giveExtraDetails: true, interrupt: !useNonInterrupt))
+            {
+                if (useNonInterrupt)
+                {
+                    ChestsAnywhereIntegration.ClearNonInterruptNextItem();
+                }
+                return true;
+            }
+
+            return InventoryUtils.NarrateHoveredSlot(__instance.inventory, giveExtraDetails: true);
         }
     }
 }

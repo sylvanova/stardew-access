@@ -18,11 +18,11 @@ internal class Game1Patch : IPatch
         );
     }
 
-    private static void ExitActiveMenuPatch()
+    private static bool ExitActiveMenuPatch()
     {
         try
         {
-            if (Game1.activeClickableMenu == null) return;
+            if (Game1.activeClickableMenu == null) return true;
             Log.Debug($"Game1Patch: Closing {Game1.activeClickableMenu.GetType()} menu, performing cleanup...");
             IClickableMenuPatch.Cleanup(Game1.activeClickableMenu);
         }
@@ -30,6 +30,8 @@ internal class Game1Patch : IPatch
         {
             Log.Error($"An error occurred in exit active menu patch:\n{e.Message}\n{e.StackTrace}");
         }
+
+        return true;
     }
 
     private static void CloseTextEntryPatch()

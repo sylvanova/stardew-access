@@ -1,3 +1,4 @@
+using stardew_access.Integrations;
 using stardew_access.Patches;
 using stardew_access.Utils;
 using StardewModdingAPI.Events;
@@ -42,10 +43,15 @@ public class FeatureManager
 #if DEBUG
         Log.Verbose($"[OnButtonPressedEvent]: {e.Button} was pressed in menu {IClickableMenuPatch.ActiveMenuOrSubMenu}");
 #endif
+        if (ChestsAnywhereIntegration.TryHandleEnterPress(e))
+        {
+            return;
+        }
 
         #region Simulate left and right clicks
 
-        if (!TextBoxPatch.IsAnyTextBoxActive)
+        bool handledOverlayClick = ChestsAnywhereIntegration.TryHandleSimulatedClick();
+        if (!handledOverlayClick && !TextBoxPatch.IsAnyTextBoxActive)
         {
             if (Game1.activeClickableMenu != null)
             {
@@ -82,6 +88,8 @@ public class FeatureManager
 
     public static void OnButtonsChangedEvent(object? sender, ButtonsChangedEventArgs e)
     {
+        ChestsAnywhereIntegration.HandleButtonsChanged(e);
+
         foreach (FeatureBase feature in AllFeatures)
         {
             try

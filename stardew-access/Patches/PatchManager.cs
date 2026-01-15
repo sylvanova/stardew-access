@@ -4,8 +4,11 @@ namespace stardew_access.Patches;
 
 internal class PatchManager
 {
+    internal static Harmony? HarmonyInstance { get; private set; }
+
     public static void PatchAll(Harmony harmony)
     {
+        HarmonyInstance = harmony;
         List<IPatch> allPatches =
         [
             // Bundle Menu Patches
@@ -48,6 +51,7 @@ internal class PatchManager
             new TextEntryMenuPatch(),
             new TileMapPatch(),
             new TrashBearPatch(),
+            new ChestsAnywhereOverlayPatch(),
             // Other Menu Patches
             new AnimalQueryMenuPatch(),
             new BuildingSkinMenuPatch(),
