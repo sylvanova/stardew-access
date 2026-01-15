@@ -438,7 +438,7 @@ public class TileDataEntryMenu : IClickableMenu
             return;
         }
 
-        OptionsElementUtils.NarrateHoveredElementFromList(_options);
+        OptionsElementUtils.NarrateHoveredElementFromList(_options, allowFallback: true);
 
         base.update(time);
     }
