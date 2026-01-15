@@ -48,6 +48,11 @@ public class FeatureManager
             return;
         }
 
+        if (ChestsAnywhereIntegration.TrySuppressPrimaryInfoKeyWhileEditing(e))
+        {
+            return;
+        }
+
         #region Simulate left and right clicks
 
         bool handledOverlayClick = ChestsAnywhereIntegration.TryHandleSimulatedClick();

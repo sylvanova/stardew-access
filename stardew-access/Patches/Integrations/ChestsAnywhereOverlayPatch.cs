@@ -24,14 +24,12 @@ internal class ChestsAnywhereOverlayPatch : IPatch
         Type? overlayType = AccessTools.TypeByName("Pathoschild.Stardew.ChestsAnywhere.Menus.Overlays.BaseChestOverlay");
         if (overlayType == null)
         {
-            Log.Debug("[ChestsAnywhere] Overlay patch not applied: type not found.");
             return false;
         }
 
         MethodInfo? receiveButtonsChanged = AccessTools.Method(overlayType, "ReceiveButtonsChanged");
         if (receiveButtonsChanged == null)
         {
-            Log.Debug("[ChestsAnywhere] Overlay patch not applied: ReceiveButtonsChanged not found.");
             return false;
         }
 
@@ -40,7 +38,6 @@ internal class ChestsAnywhereOverlayPatch : IPatch
             prefix: new HarmonyMethod(typeof(ChestsAnywhereOverlayPatch), nameof(ReceiveButtonsChangedPatch))
         );
         _applied = true;
-        Log.Debug("[ChestsAnywhere] Overlay patch applied.");
         return true;
     }
 

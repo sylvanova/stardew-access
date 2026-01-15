@@ -192,6 +192,8 @@ internal static class ChestsAnywhereIntegration
             return;
         }
 
+        SuppressMovementButtons(e.Pressed);
+
         bool upPressed = IsConfiguredButtonPressed(Game1.options.moveUpButton, e.Pressed);
         bool downPressed = IsConfiguredButtonPressed(Game1.options.moveDownButton, e.Pressed);
         if (!upPressed && !downPressed)
@@ -201,6 +203,26 @@ internal static class ChestsAnywhereIntegration
 
         int direction = upPressed && !downPressed ? -1 : 1;
         TryHandleEditNavigation(overlay, direction);
+    }
+
+    private static void SuppressMovementButtons(IEnumerable<SButton> pressed)
+    {
+        SuppressConfiguredButtons(Game1.options.moveUpButton, pressed);
+        SuppressConfiguredButtons(Game1.options.moveDownButton, pressed);
+        SuppressConfiguredButtons(Game1.options.moveLeftButton, pressed);
+        SuppressConfiguredButtons(Game1.options.moveRightButton, pressed);
+    }
+
+    private static void SuppressConfiguredButtons(InputButton[] configuredButtons, IEnumerable<SButton> pressed)
+    {
+        foreach (InputButton inputButton in configuredButtons)
+        {
+            SButton button = inputButton.ToSButton();
+            if (pressed.Contains(button))
+            {
+                MainClass.ModHelper?.Input.Suppress(button);
+            }
+        }
     }
 
     internal static bool TryHandleEnterPress(ButtonPressedEventArgs e)
@@ -246,7 +268,54 @@ internal static class ChestsAnywhereIntegration
         _editNavIndex = -1;
         _lastOverlayElementKey = null;
         _isEditFormOpen = true;
-        Log.Debug("[ChestsAnywhere] Enter pressed: deselected edit textbox.");
+        MainClass.ModHelper?.Input.Suppress(e.Button);
+        return true;
+    }
+
+    internal static bool TrySuppressPrimaryInfoKeyWhileEditing(ButtonPressedEventArgs e)
+    {
+        if (e is null)
+        {
+            return false;
+        }
+
+        if (!MainClass.Config.PrimaryInfoKey.JustPressed())
+        {
+            return false;
+        }
+
+        if (!TextBoxPatch.IsAnyTextBoxActive)
+        {
+            return false;
+        }
+
+        if (Game1.activeClickableMenu is not IClickableMenu menu)
+        {
+            return false;
+        }
+
+        if (!TryGetOverlay(menu, out object? overlay) || overlay == null)
+        {
+            if (_lastOverlay != null && IsChestOverlayType(_lastOverlay))
+            {
+                overlay = _lastOverlay;
+            }
+            else
+            {
+                return false;
+            }
+        }
+
+        if (!IsEditFormActive(overlay))
+        {
+            return false;
+        }
+
+        if (!IsAnyEditTextBoxSelected(overlay))
+        {
+            return false;
+        }
+
         MainClass.ModHelper?.Input.Suppress(e.Button);
         return true;
     }
@@ -277,7 +346,6 @@ internal static class ChestsAnywhereIntegration
         _editNavIndex = -1;
         _lastOverlayElementKey = null;
         _isEditFormOpen = true;
-        Log.Debug("[ChestsAnywhere] Enter pressed (overlay): deselected edit textbox.");
         MainClass.ModHelper?.Input.Suppress(SButton.Enter);
         return true;
     }
@@ -399,21 +467,18 @@ internal static class ChestsAnywhereIntegration
         EnsureLoaded();
         if (_modInstance == null || _currentOverlayField == null)
         {
-            Log.Debug("[ChestsAnywhere] Current overlay lookup: mod instance or field missing.");
             return false;
         }
 
         object? currentOverlay = GetPerScreenValue(_currentOverlayField);
         if (currentOverlay == null)
         {
-            Log.Debug("[ChestsAnywhere] Current overlay lookup: CurrentOverlay is null.");
             return false;
         }
 
         Type overlayType = currentOverlay.GetType();
         if (!string.Equals(overlayType.FullName, ChestOverlayTypeName, StringComparison.Ordinal))
         {
-            Log.Debug($"[ChestsAnywhere] Current overlay lookup: type mismatch {overlayType.FullName}.");
             return false;
         }
 
@@ -571,6 +636,11 @@ internal static class ChestsAnywhereIntegration
 
     private static bool TryToggleEditForm(object overlay)
     {
+        if (TextBoxPatch.IsAnyTextBoxActive || IsAnyEditTextBoxSelected(overlay))
+        {
+            return false;
+        }
+
         if (!MainClass.Config.PrimaryInfoKey.JustPressed())
         {
             return false;
@@ -673,7 +743,6 @@ internal static class ChestsAnywhereIntegration
             Game1.setMousePosition(x, y);
             InvokeReceiveLeftClick(overlay, x, y);
             _isEditFormOpen = false;
-            Log.Debug("[ChestsAnywhere] Closing edit form via exit button click.");
             return true;
         }
 
@@ -681,7 +750,6 @@ internal static class ChestsAnywhereIntegration
         if (closed)
         {
             _isEditFormOpen = false;
-            Log.Debug("[ChestsAnywhere] Closing edit form via ActiveElement=Menu.");
         }
 
         return closed;
