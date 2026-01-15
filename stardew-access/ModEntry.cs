@@ -2,6 +2,7 @@ using HarmonyLib;
 using Microsoft.Xna.Framework;
 using stardew_access.Commands;
 using stardew_access.Features;
+using stardew_access.Integrations;
 using stardew_access.Patches;
 using stardew_access.ScreenReader;
 using stardew_access.Tiles;
@@ -126,6 +127,7 @@ public class MainClass : Mod
         }
         TileManager.Initialize();
         ModConfigMenu.Create(modHelper!, ModManifest, config!);
+        LookupAnythingIntegration.Initialize();
         if (PatchManager.HarmonyInstance != null)
         {
             ChestsAnywhereOverlayPatch.TryApply(PatchManager.HarmonyInstance);
@@ -207,6 +209,7 @@ public class MainClass : Mod
             Log.Debug($"Switched from {e.OldMenu.GetType()} menu, performing cleanup...");
             IClickableMenuPatch.Cleanup(e.OldMenu);
         }
+        LookupAnythingIntegration.OnMenuChanged(e.NewMenu);
     }
 
     private void OnPlayerWarped(object? sender, WarpedEventArgs e)

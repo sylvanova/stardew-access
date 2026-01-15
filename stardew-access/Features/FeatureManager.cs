@@ -94,6 +94,7 @@ public class FeatureManager
     public static void OnButtonsChangedEvent(object? sender, ButtonsChangedEventArgs e)
     {
         ChestsAnywhereIntegration.HandleButtonsChanged(e);
+        LookupAnythingIntegration.HandleButtonsChanged(e);
 
         foreach (FeatureBase feature in AllFeatures)
         {
