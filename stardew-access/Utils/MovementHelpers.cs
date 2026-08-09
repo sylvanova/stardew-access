@@ -60,7 +60,8 @@ namespace stardew_access.Utils
             Game1.player.FarmerSprite.PauseForSingleAnimation = false;
             if (Game1.player.CurrentTool is FishingRod fishingRod)
                 fishingRod.isFishing = false;
-            Game1.player.mount?.dismount();
+            // Intentionally NOT dismounting here: the horse follows the rider during
+            // pathfinding (Horse.SyncPositionToRider), so auto walk works while mounted.
         }
 
         private static Vector2? GetClosestNavigableTile(List<Vector2> tiles, Vector2? tilePosition, Vector2 playerLocation)
