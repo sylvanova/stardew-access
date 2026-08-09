@@ -596,8 +596,11 @@ menu-naming-random_button = Random button
 
 ### Number Selection Menu
 
+menu-number_selection-opened_info = {$message} Current value: {$value}. Type the desired number and press enter to confirm, or press escape to cancel.
 menu-number_selection-button-left_button = Decrease value button
 menu-number_selection-button-right_button = Increase value button
+menu-number_selection-button-digit_button = {$digit} button
+menu-number_selection-button-clear_button = Clear button
 menu-number_selection-value_and_price_info = {$value} {$price ->
     [0] {EMPTYSTRING()}
     *[other] Price: {$price}
