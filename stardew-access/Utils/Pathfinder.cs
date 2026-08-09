@@ -11,7 +11,6 @@ namespace stardew_access.Utils
 	public sealed class Pathfinder : IDisposable
 	{
 		private readonly System.Timers.Timer checkPathingTimer;
-		private readonly System.Timers.Timer footstepTimer;
 		private readonly object pathfindingLock = new();
 		private readonly Func<int, int, Vector2?, bool> retryAction;
 		private readonly Action<Vector2?> stopAction;
@@ -23,7 +22,10 @@ namespace stardew_access.Utils
 		private readonly int MSBetweenCheckingPathfindingController;
 		public bool IsActive;
 
-		public Pathfinder(Func<int, int, Vector2?, bool> retryAction, Action<Vector2?> stopAction, int minMillisecondsBetweenSteps = 300, int maxRetryAttempts = 5, int defaultDirection = -1, int checkPointTimeout = 500, int msBetweenCheckingPathfindingController = 1000)
+		// No extra footstep sounds are played here; the game itself plays terrain-aware
+		// footsteps from the walking animation (and hoof sounds from the horse's animation
+		// when riding), already matching the actual movement speed.
+		public Pathfinder(Func<int, int, Vector2?, bool> retryAction, Action<Vector2?> stopAction, int maxRetryAttempts = 5, int defaultDirection = -1, int checkPointTimeout = 500, int msBetweenCheckingPathfindingController = 1000)
 		{
 			this.retryAction = retryAction;
 			this.stopAction = stopAction;
@@ -33,31 +35,11 @@ namespace stardew_access.Utils
 			this.MSBetweenCheckingPathfindingController = msBetweenCheckingPathfindingController;
 			checkPathingTimer = new(MSBetweenCheckingPathfindingController);
 			checkPathingTimer.Elapsed += CheckPathingTimer_Elapsed;
-
-			footstepTimer = new(minMillisecondsBetweenSteps + 50);
-			footstepTimer.Elapsed += FootstepTimer_Elapsed;
 		}
 
         public void Dispose()
         {
 			checkPathingTimer.Dispose();
-			footstepTimer.Dispose();
-		}
-
-		private void FootstepTimer_Elapsed(object? sender, ElapsedEventArgs e)
-		{
-			try
-			{
-				Farmer player = Game1.player;
-				if (player.controller != null)
-				{
-					player.currentLocation.playTerrainSound(player.Tile);
-				}
-			}
-			catch (Exception ex)
-			{
-				Log.Error($"Unhandled exception {ex} in FootstepTimer_Elapsed.");
-			}
 		}
 
 		private void CheckPathingTimer_Elapsed(object? sender, ElapsedEventArgs e)
@@ -134,13 +116,11 @@ namespace stardew_access.Utils
 
 		private void StartTimers()
 		{
-			footstepTimer.Start();
 			checkPathingTimer.Start();
 		}
 
 		private void StopTimers()
 		{
-			footstepTimer.Stop();
 			checkPathingTimer.Stop();
 		}
 	}
