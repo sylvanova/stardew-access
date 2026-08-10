@@ -69,6 +69,8 @@ For more information about all tile reader features, including the tile info men
 This feature set allows you to track individual objects on the map. from doorways to forageables to animals and slimes, the object tracker sorts everything into categories and provides a list of everything on the map, sorted by proximity.
 You can get coordinates, distance, and auto-travel to the nearest instance of the selected object.
 
+Auto-travel works while mounted. Mounted routes account for the horse's wider collision box, stop beside map entrances, keep the player mounted, and use Stardew Valley's normal horse animation and hoof sounds. Ride through the entrance normally, then select the next destination in the new location.
+
 ### Object Tracker Favorites
 
 Set frequently-traveled spots as a favorite. With 10 favorites per stack and an effectively-limitless set of stacks of favorites per map, you can efficiently get anywhere you need to.
@@ -81,6 +83,8 @@ For more information about the object tracker feature set, including object trac
 ## Grid Movement
 
 When enabled, the player moves 1 tile at a time and makes a footstep sound on every movement. This feature is very handy when precise movement is required, such as when planting or harvesting crops.
+
+Grid movement is bypassed while riding a horse, so direction keys use Stardew Valley's normal continuous riding controls.
 
 **Important notes:**
 

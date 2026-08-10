@@ -67,8 +67,9 @@ internal class GridMovement : FeatureBase
             return;
 
         Farmer player = Game1.player;
+        // A horse should use Stardew Valley's normal continuous riding controls.
+        if (player.isRidingHorse()) return;
         if (MainClass.ModHelper == null) return;
-        if (player.isRidingHorse()) return; // riding uses the game's normal movement
         if (!LastGridMovementButtonPressed.HasValue) return;
 
         SButton button = LastGridMovementButtonPressed.Value.ToSButton();
@@ -94,19 +95,22 @@ internal class GridMovement : FeatureBase
             return false;
         }
 
+        // Don't suppress or replace direction input while mounted. Vanilla movement
+        // is what drives the horse animation and its native hoof callbacks.
+        if (Game1.player.isRidingHorse())
+        {
+            timer.Stop();
+            is_moving = false;
+            LastGridMovementButtonPressed = null;
+            LastGridMovementDirection = null;
+            return false;
+        }
+
         // GridMovement
         if (is_warping)
         {
             MainClass.ModHelper!.Input.Suppress(e.Button);
             return true;
-        }
-
-        // While riding the horse, grid movement steps aside entirely: the player
-        // rides with the game's normal continuous movement (real hoof sounds from
-        // the animation, vanilla warps and physics). Resumes on dismount.
-        if (Game1.player.isRidingHorse())
-        {
-            return false;
         }
 
         if (!Context.CanPlayerMove)
@@ -174,10 +178,6 @@ internal class GridMovement : FeatureBase
 
     public override void OnPlayerWarped(object? sender, WarpedEventArgs e)
     {
-        // While riding, warps happen through the game's normal movement (grid movement
-        // is bypassed), so play the area-change cue here.
-        if (Game1.player.isRidingHorse())
-            Game1.playSound("doorOpen");
         HandleFinishedWarping();
         StepCounter = 0;
     }
@@ -265,7 +265,7 @@ internal class GridMovement : FeatureBase
             //valid point
             player.Position = tileLocation * Game1.tileSize;
             if (++StepCounter % tilesPerStep == 0)
-                PlayStepSound(location, tileLocation);
+                location.playTerrainSound(tileLocation);
             CenterPlayer();
         }
     }
@@ -275,25 +275,6 @@ internal class GridMovement : FeatureBase
 #if DEBUG
         Log.Verbose($"GridMovement.HandleWarpInteraction: Handling Warp {warp} from location {location} at {tileLocation}");
 #endif
-        // While riding, both the door handling (pressActionButton) and location.checkAction
-        // run the game's horse interaction, which dismounts the player - and dismounting in
-        // the middle of a warp leaves the player frozen. Warp directly instead, exactly like
-        // vanilla does when a mounted player rides into a warp at the map edge; the game then
-        // keeps the horse for outdoor targets and dismounts cleanly for indoor ones.
-        if (Game1.player.isRidingHorse())
-        {
-            timer.Stop();
-            timer.Interval = TimerInterval;
-            timer.Start();
-
-            // TODO Replace with custom sound
-            Game1.playSound("doorOpen");
-            // The direction overload applies the game's mounted warp offsets.
-            Game1.player.warpFarmer(warp, Game1.player.FacingDirection);
-            is_warping = true;
-            return;
-        }
-
         if (TileInfo.GetDoorAtTile(location, (int)tileLocation.X, (int)tileLocation.Y, true, true) is not null
             || DynamicTiles.GetDynamicTileAt(location, (int)tileLocation.X, (int)tileLocation.Y, lessInfo: true).category == CATEGORY.Doors)
         {

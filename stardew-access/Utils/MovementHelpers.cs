@@ -29,30 +29,6 @@ namespace stardew_access.Utils
             Game1.player.Position = Vector2.Divide(Game1.player.Position, Game1.tileSize) * Game1.tileSize;
         }
 
-        /// <summary>
-        /// Plays one step sound for the given tile: hoof sounds while riding
-        /// (same terrain mapping as the game's Horse.OnMountFootstep), normal
-        /// terrain footsteps otherwise.
-        /// </summary>
-        internal static void PlayStepSound(GameLocation location, Vector2 tile)
-        {
-            if (Game1.player.isRidingHorse())
-            {
-                string? stepType = location.doesTileHaveProperty((int)tile.X, (int)tile.Y, "Type", "Back");
-                string sound = stepType switch
-                {
-                    "Stone" => "stoneStep",
-                    "Wood" => "woodyStep",
-                    _ => "thudStep",
-                };
-                location.localSound(sound, tile);
-            }
-            else
-            {
-                location.playTerrainSound(tile);
-            }
-        }
-
         internal static void FacePlayerToTargetTile(Vector2 targetTile)
         {
             var player = Game1.player;
@@ -84,88 +60,92 @@ namespace stardew_access.Utils
             Game1.player.FarmerSprite.PauseForSingleAnimation = false;
             if (Game1.player.CurrentTool is FishingRod fishingRod)
                 fishingRod.isFishing = false;
-            // Intentionally NOT dismounting here: the horse follows the rider during
-            // pathfinding (Horse.SyncPositionToRider), so auto walk works while mounted.
         }
 
         /// <summary>
-        /// A* pathfinding for the mounted player. The game's own pathfinding only checks
-        /// single tiles, but the horse's bounding box spans the standing tile plus its
-        /// east neighbor, so paths that are valid on foot stall the horse. This search
-        /// requires that clearance for every step, producing routes the horse can
-        /// actually follow.
+        /// Find a route using the mounted player's real collision box instead of the
+        /// game's one-tile pathfinding approximation.
         /// </summary>
-        internal static Stack<Point>? FindHorsePath(GameLocation location, Point start, Point end, int limit = 10000)
+        internal static Stack<Point>? FindMountedPath(GameLocation location, Point start, Point end, int limit = 10000)
         {
-            if (start == end) return null;
+            if (start == end)
+                return new Stack<Point>();
 
-            Dictionary<Point, bool> passableCache = [];
-            bool IsTilePassable(int x, int y)
-            {
-                Point p = new(x, y);
-                if (!passableCache.TryGetValue(p, out bool passable))
-                {
-                    // Warp tiles count as walls: auto walk must never drag the mounted
-                    // player through a map exit (a surviving controller then teleports
-                    // them; see ObjectTracker.OnPlayerWarped). The ride stops next to
-                    // the exit and the player crosses it themselves by riding on.
-                    passable = !DoorUtils.IsWarpAtTile((x, y), location)
-                        && !location.isCollidingPosition(
-                            new Rectangle(x * 64 + 1, y * 64 + 1, 62, 62),
-                            Game1.viewport, isFarmer: true, 0, glider: false, Game1.player, pathfinding: true);
-                    passableCache[p] = passable;
-                }
-                return passable;
-            }
-            // The horse's box covers the standing tile and the one east of it.
-            bool HasHorseClearance(int x, int y) => IsTilePassable(x, y) && IsTilePassable(x + 1, y);
-
-            if (!HasHorseClearance(end.X, end.Y)) return null;
-
+            Rectangle playerBox = Game1.player.GetBoundingBox();
             int width = location.map.Layers[0].LayerWidth;
             int height = location.map.Layers[0].LayerHeight;
-            int[] dx = [0, 1, 0, -1];
-            int[] dy = [-1, 0, 1, 0];
+            Dictionary<Point, bool> passableCache = [];
 
-            // Costs are scaled by 10 so a small penalty for changing direction can be
-            // added: straighter paths keep the horse's riding animation (and its real
-            // hoof sounds) running instead of restarting at every zig-zag turn.
-            const int stepCost = 10;
-            const int turnPenalty = 2;
+            bool IsPassable(Point tile)
+            {
+                if (tile.X < 0 || tile.Y < 0 || tile.X >= width || tile.Y >= height)
+                    return false;
 
-            PriorityQueue<Point, int> openList = new();
+                if (!passableCache.TryGetValue(tile, out bool passable))
+                {
+                    int centerX = tile.X * Game1.tileSize + Game1.tileSize / 2;
+                    int centerY = tile.Y * Game1.tileSize + Game1.tileSize / 2;
+                    Rectangle candidateBox = new(
+                        centerX - playerBox.Width / 2,
+                        centerY - playerBox.Height / 2,
+                        playerBox.Width,
+                        playerBox.Height
+                    );
+
+                    // A warp is a destination, not a route node. Stopping beside it
+                    // avoids carrying a controller into the next location.
+                    passable = !DoorUtils.IsWarpAtTile((tile.X, tile.Y), location)
+                        && !location.isCollidingPosition(
+                            candidateBox,
+                            Game1.viewport,
+                            isFarmer: true,
+                            0,
+                            glider: false,
+                            Game1.player,
+                            pathfinding: true
+                        );
+                    passableCache[tile] = passable;
+                }
+
+                return passable;
+            }
+
+            if (!IsPassable(end))
+                return null;
+
+            int[] deltaX = [0, 1, 0, -1];
+            int[] deltaY = [-1, 0, 1, 0];
+            PriorityQueue<Point, int> open = new();
             Dictionary<Point, Point> cameFrom = [];
-            Dictionary<Point, int> directionTo = [];
-            Dictionary<Point, int> costSoFar = new() { [start] = 0 };
-            openList.Enqueue(start, stepCost * (Math.Abs(end.X - start.X) + Math.Abs(end.Y - start.Y)));
+            Dictionary<Point, int> cost = new() { [start] = 0 };
+            open.Enqueue(start, Math.Abs(end.X - start.X) + Math.Abs(end.Y - start.Y));
             int visited = 0;
 
-            while (openList.Count > 0 && visited++ < limit)
+            while (open.Count > 0 && visited++ < limit)
             {
-                Point current = openList.Dequeue();
+                Point current = open.Dequeue();
                 if (current == end)
                 {
                     Stack<Point> path = new();
-                    for (Point p = end; p != start; p = cameFrom[p])
-                        path.Push(p);
+                    for (Point node = end; node != start; node = cameFrom[node])
+                        path.Push(node);
                     return path;
                 }
 
-                directionTo.TryGetValue(current, out int currentDirection);
-                for (int i = 0; i < 4; i++)
+                for (int direction = 0; direction < 4; direction++)
                 {
-                    Point next = new(current.X + dx[i], current.Y + dy[i]);
-                    if (next.X < 0 || next.Y < 0 || next.X >= width || next.Y >= height) continue;
-                    // (The start tile itself is never re-entered thanks to the cost check.)
-                    if (!HasHorseClearance(next.X, next.Y)) continue;
+                    Point next = new(current.X + deltaX[direction], current.Y + deltaY[direction]);
+                    if (!IsPassable(next))
+                        continue;
 
-                    int newCost = costSoFar[current] + stepCost
-                        + ((current != start && i != currentDirection) ? turnPenalty : 0);
-                    if (costSoFar.TryGetValue(next, out int existing) && existing <= newCost) continue;
-                    costSoFar[next] = newCost;
+                    int nextCost = cost[current] + 1;
+                    if (cost.TryGetValue(next, out int existingCost) && existingCost <= nextCost)
+                        continue;
+
+                    cost[next] = nextCost;
                     cameFrom[next] = current;
-                    directionTo[next] = i;
-                    openList.Enqueue(next, newCost + stepCost * (Math.Abs(end.X - next.X) + Math.Abs(end.Y - next.Y)));
+                    int distance = Math.Abs(end.X - next.X) + Math.Abs(end.Y - next.Y);
+                    open.Enqueue(next, nextCost + distance);
                 }
             }
 
@@ -173,34 +153,41 @@ namespace stardew_access.Utils
         }
 
         /// <summary>
-        /// Mounted variant of <see cref="GetClosestTilePath"/>: picks the closest tile
-        /// around the target that the horse can reach and stand on, and returns the
-        /// horse-viable path to it.
+        /// Find the nearest reachable place around a tracked target for a mounted player.
+        /// Larger rings matter for wide horses near map entrances and other obstacles.
         /// </summary>
-        internal static (Vector2? tile, Stack<Point>? path) GetClosestHorseTilePath(Vector2? tilePosition)
+        internal static (Vector2? tile, Stack<Point>? path) GetClosestMountedTilePath(Vector2? tilePosition)
         {
-            if (tilePosition == null) return (null, null);
+            if (tilePosition == null)
+                return (null, null);
 
-            GameLocation location = Game1.currentLocation;
             Point start = Game1.player.TilePoint;
+            Point target = tilePosition.Value.ToPoint();
 
-            foreach (var stage in Stages)
+            for (int radius = 1; radius <= 6; radius++)
             {
                 Vector2? bestTile = null;
                 Stack<Point>? bestPath = null;
 
-                foreach (var offset in stage)
+                for (int offsetX = -radius; offsetX <= radius; offsetX++)
                 {
-                    Vector2 candidate = tilePosition.Value + offset;
-                    Stack<Point>? path = FindHorsePath(location, start, candidate.ToPoint());
-                    if (path != null && (bestPath == null || path.Count < bestPath.Count))
+                    for (int offsetY = -radius; offsetY <= radius; offsetY++)
                     {
-                        bestTile = candidate;
-                        bestPath = path;
+                        if (Math.Abs(offsetX) != radius && Math.Abs(offsetY) != radius)
+                            continue;
+
+                        Point candidate = new(target.X + offsetX, target.Y + offsetY);
+                        Stack<Point>? path = FindMountedPath(Game1.currentLocation, start, candidate);
+                        if (path != null && (bestPath == null || path.Count < bestPath.Count))
+                        {
+                            bestTile = candidate.ToVector2();
+                            bestPath = path;
+                        }
                     }
                 }
 
-                if (bestPath != null) return (bestTile, bestPath);
+                if (bestPath != null)
+                    return (bestTile, bestPath);
             }
 
             return (null, null);

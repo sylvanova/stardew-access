@@ -22,8 +22,7 @@ namespace stardew_access.Utils
 		private readonly int MSBetweenCheckingPathfindingController;
 		public bool IsActive;
 
-		// Step sounds during auto walk are played per tile moved by ObjectTracker
-		// (MovementHelpers.PlayStepSound), not by a timer here.
+		// Step sounds during auto walk are handled from actual movement, not a timer.
 		public Pathfinder(Func<int, int, Vector2?, bool> retryAction, Action<Vector2?> stopAction, int maxRetryAttempts = 5, int defaultDirection = -1, int checkPointTimeout = 500, int msBetweenCheckingPathfindingController = 1000)
 		{
 			this.retryAction = retryAction;
@@ -88,6 +87,7 @@ namespace stardew_access.Utils
 			lock (pathfindingLock)
 			{
 				IsActive = true;
+				pathfindingRetryAttempts = 0;
 				LastTargetedTile = targetTile.ToVector2();
 				StopTimers();
 				StartTimers();
@@ -99,26 +99,21 @@ namespace stardew_access.Utils
 			}
 		}
 
-		/// <summary>
-		/// Starts pathfinding along a precomputed path (used for the mounted player,
-		/// whose paths must be horse-viable; see MovementHelpers.FindHorsePath).
-		/// </summary>
 		internal void StartPathfinding(Farmer player, GameLocation location, Point targetTile, Stack<Point> path, int? direction = null)
 		{
+			direction ??= DefaultDirection;
 			lock (pathfindingLock)
 			{
 				IsActive = true;
+				pathfindingRetryAttempts = 0;
 				LastTargetedTile = targetTile.ToVector2();
 				StopTimers();
 				StartTimers();
 
 				player.controller = new PathFindController(path, location, player, targetTile)
 				{
-					finalFacingDirection = direction ?? DefaultDirection,
-					endBehaviorFunction = (Character farmer, GameLocation location) =>
-					{
-						StopPathfinding();
-					},
+					finalFacingDirection = direction.Value,
+					endBehaviorFunction = (Character farmer, GameLocation currentLocation) => StopPathfinding(),
 				};
 			}
 		}

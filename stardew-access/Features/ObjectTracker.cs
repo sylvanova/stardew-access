@@ -58,7 +58,7 @@ internal class ObjectTracker : FeatureBase
         }
     }
 
-    /// <summary>Whether object tracker auto walking is currently driving the player.</summary>
+    /// <summary>Whether Object Tracker is currently driving an auto-walk route.</summary>
     internal static bool IsAutoWalking => instance?.pathfinder?.IsActive == true;
     
     private enum CycleType
@@ -126,8 +126,7 @@ internal class ObjectTracker : FeatureBase
     }
 
     /// <summary>
-    /// Plays one step sound (hoof sound while riding) for every tile actually moved
-    /// during auto walking, so the step rhythm always matches the real speed.
+    /// Plays one terrain footstep for every tile actually moved on foot.
     /// </summary>
     private void PlayStepSoundWhileAutoWalking()
     {
@@ -142,16 +141,14 @@ internal class ObjectTracker : FeatureBase
             return;
         }
 
-        // While riding, the horse's real walk animation now runs during auto walk
-        // (HorseUpdatePatch keeps it alive through the per-tile checkpoint blips), so
-        // its genuine hoof sounds play; no extra sounds needed.
+        // Mounted auto-walk uses Horse.OnMountFootstep through the vanilla animation.
         if (Game1.player.isRidingHorse()) return;
 
         Vector2 currentTile = Game1.player.Tile;
         if (currentTile == lastStepSoundTile) return;
 
         lastStepSoundTile = currentTile;
-        PlayStepSound(Game1.currentLocation, currentTile);
+        Game1.currentLocation.playTerrainSound(currentTile);
     }
 
     public override bool OnButtonPressed(object? sender, ButtonPressedEventArgs e)
@@ -216,15 +213,10 @@ internal class ObjectTracker : FeatureBase
 
     public override void OnPlayerWarped(object? sender, WarpedEventArgs e)
     {
-        // Stop auto walking the moment the player changes location: a still-active
-        // PathFindController from the old location teleports the player to its end
-        // point's coordinates in the NEW map (vanilla behavior when the controller's
-        // location no longer matches), which caused warp ping-pong loops.
-        if (pathfinder != null && pathfinder.IsActive)
-        {
-            Game1.player.controller = null;
+        // A route belongs to the location where it was calculated. Clear it before
+        // refreshing the tracker so it can't move the player in the new map.
+        if (pathfinder?.IsActive == true)
             pathfinder.StopPathfinding();
-        }
 
         // reset the objects being tracked
         GetLocationObjects(resetFocus: true);
@@ -678,7 +670,7 @@ internal class ObjectTracker : FeatureBase
 
         if (player.isRidingHorse())
         {
-            MoveToCurrentlySelectedObjectOnHorse(player, sObject, sObjectTile);
+            MoveToCurrentlySelectedObjectMounted(player, sObject, sObjectTile);
             return;
         }
 
@@ -703,44 +695,45 @@ internal class ObjectTracker : FeatureBase
         }
     }
 
-    /// <summary>
-    /// Mounted auto walk: the game's own pathfinding ignores the horse's width, so its
-    /// paths stall against obstacles. Compute a horse-viable path instead and walk that.
-    /// </summary>
-    private void MoveToCurrentlySelectedObjectOnHorse(Farmer player, SpecialObject? sObject, Vector2? sObjectTile)
+    private void MoveToCurrentlySelectedObjectMounted(Farmer player, SpecialObject? sObject, Vector2? sObjectTile)
     {
-        GameLocation location = Game1.currentLocation;
         Vector2? closestTile;
-        Stack<Point>? horsePath;
+        Stack<Point>? mountedPath;
 
-        if (SelectedCoordinates is Vector2 selected)
+        if (SelectedCoordinates is Vector2 selectedCoordinates)
         {
-            closestTile = selected;
-            horsePath = FindHorsePath(location, player.TilePoint, selected.ToPoint());
+            closestTile = selectedCoordinates;
+            mountedPath = FindMountedPath(Game1.currentLocation, player.TilePoint, selectedCoordinates.ToPoint());
         }
         else
         {
             Vector2? target = sObject?.PathfindingOverride ?? sObjectTile;
-            (closestTile, horsePath) = GetClosestHorseTilePath(target);
+            (closestTile, mountedPath) = GetClosestMountedTilePath(target);
         }
         SelectedCoordinates = null;
 
-        if (closestTile != null && horsePath != null)
+        if (closestTile == null || mountedPath == null)
         {
-            MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-moving_to", true,
-                translationTokens: new
-                {
-                    object_x = (int)closestTile.Value.X,
-                    object_y = (int)closestTile.Value.Y
-                });
-            pathfinder?.Dispose();
-            pathfinder = new(RetryPathfinding, StopPathfinding);
-            pathfinder.StartPathfinding(player, location, closestTile.Value.ToPoint(), horsePath);
+            MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-could_not_find_path", true);
+            return;
         }
-        else
+
+        if (mountedPath.Count == 0)
         {
-            MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-mounted_path_blocked", true);
+            FacePlayerToTargetTile(closestTile.Value);
+            ReadCurrentlySelectedObject();
+            return;
         }
+
+        MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-moving_to", true,
+            translationTokens: new
+            {
+                object_x = (int)closestTile.Value.X,
+                object_y = (int)closestTile.Value.Y
+            });
+        pathfinder?.Dispose();
+        pathfinder = new(RetryPathfinding, StopPathfinding);
+        pathfinder.StartPathfinding(player, Game1.currentLocation, closestTile.Value.ToPoint(), mountedPath);
     }
 
     public void SaveToFavorites(int hotkey)
