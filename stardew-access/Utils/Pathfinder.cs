@@ -50,27 +50,27 @@ namespace stardew_access.Utils
 				{
 					if (player.controller.timerSinceLastCheckPoint > CheckPointTimeout)
 					{
-						if (pathfindingRetryAttempts < MaxRetryAttempts)
+						if (pathfindingRetryAttempts >= MaxRetryAttempts)
 						{
-							pathfindingRetryAttempts++;
-							Log.Debug($"Attempting to restart pathfinding; attempt {pathfindingRetryAttempts} of {MaxRetryAttempts}.");
+							// Out of retries; stop cleanly with feedback. The old code left IsActive
+							// stuck true here and went silent, so a stalled walk just froze the feature.
+							MainClass.ScreenReader.Say("Target unreachable, stopping.", true);
+							StopPathfinding();
+							return;
+						}
 
-							if (pathfindingRetryAttempts > MaxRetryAttempts)
-							{
-								pathfindingRetryAttempts = 0;
-								IsActive = false;
-								MainClass.ScreenReader.Say("Pathfinding forcibly stopped. Target Lost.", true);
+						pathfindingRetryAttempts++;
+						Log.Debug($"Attempting to restart pathfinding; attempt {pathfindingRetryAttempts} of {MaxRetryAttempts}.");
 
-								player.controller.endBehaviorFunction(player, location);
-								player.controller = null;
-								return;
-							}
-							else 							if (pathfindingRetryAttempts == 1)
-							{
-								MainClass.ScreenReader.Say($"Target unreachable, re-trying...", true);
-							}
-							bool shouldContinue = retryAction.Invoke(pathfindingRetryAttempts, MaxRetryAttempts, LastTargetedTile);
-							if (!shouldContinue) pathfindingRetryAttempts = MaxRetryAttempts + 1;
+						if (pathfindingRetryAttempts == 1)
+						{
+							MainClass.ScreenReader.Say($"Target unreachable, re-trying...", true);
+						}
+						bool shouldContinue = retryAction.Invoke(pathfindingRetryAttempts, MaxRetryAttempts, LastTargetedTile);
+						if (!shouldContinue)
+						{
+							MainClass.ScreenReader.Say("Target unreachable, stopping.", true);
+							StopPathfinding();
 						}
 					}
 				}
@@ -96,6 +96,17 @@ namespace stardew_access.Utils
 				{
 					StopPathfinding();
 				});
+
+				// When the game can't compute a route (e.g. the target tile is blocked by the horse,
+				// an NPC or another player), the controller is silently discarded on the next tick and
+				// the player never starts walking. Fail here with feedback instead.
+				if (player.controller.pathToEndPoint == null || player.controller.pathToEndPoint.Count == 0)
+				{
+					player.controller = null;
+					IsActive = false;
+					StopTimers();
+					MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-could_not_find_path", true);
+				}
 			}
 		}
 

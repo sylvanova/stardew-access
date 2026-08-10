@@ -119,6 +119,15 @@ internal class ObjectTracker : FeatureBase
             return;            
         }
 
+        // In multiplayer the world keeps updating during the warp fade, so an active
+        // controller pushes the player into the warp again every frame, re-triggering
+        // it dozens of times and delaying the crossing. Drop the controller as soon as
+        // a warp starts; OnPlayerWarped does the full cleanup after arrival.
+        if (Game1.isWarping && pathfinder?.IsActive == true && Game1.player.controller != null)
+        {
+            Game1.player.controller = null;
+        }
+
         PlayStepSoundWhileAutoWalking();
 
         if (e.IsMultipleOf(5))
