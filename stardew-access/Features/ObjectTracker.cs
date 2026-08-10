@@ -651,6 +651,12 @@ internal class ObjectTracker : FeatureBase
         Vector2 playerTile = player.Tile;
         Vector2? sObjectTile = (sObject != null) ? sObject.TileLocation : (Vector2?)null;
 
+        if (player.isRidingHorse())
+        {
+            MoveToCurrentlySelectedObjectOnHorse(player, sObject, sObjectTile);
+            return;
+        }
+
         Vector2? closestTile = SelectedCoordinates ?? (sObject is not null ? (sObject.PathfindingOverride != null ? GetClosestTilePath((Vector2)sObject.PathfindingOverride) : GetClosestTilePath(sObjectTile)) : null);
         SelectedCoordinates = null;
 
@@ -669,6 +675,46 @@ internal class ObjectTracker : FeatureBase
         else
         {
             MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-could_not_find_path", true);
+        }
+    }
+
+    /// <summary>
+    /// Mounted auto walk: the game's own pathfinding ignores the horse's width, so its
+    /// paths stall against obstacles. Compute a horse-viable path instead and walk that.
+    /// </summary>
+    private void MoveToCurrentlySelectedObjectOnHorse(Farmer player, SpecialObject? sObject, Vector2? sObjectTile)
+    {
+        GameLocation location = Game1.currentLocation;
+        Vector2? closestTile;
+        Stack<Point>? horsePath;
+
+        if (SelectedCoordinates is Vector2 selected)
+        {
+            closestTile = selected;
+            horsePath = FindHorsePath(location, player.TilePoint, selected.ToPoint());
+        }
+        else
+        {
+            Vector2? target = sObject?.PathfindingOverride ?? sObjectTile;
+            (closestTile, horsePath) = GetClosestHorseTilePath(target);
+        }
+        SelectedCoordinates = null;
+
+        if (closestTile != null && horsePath != null)
+        {
+            MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-moving_to", true,
+                translationTokens: new
+                {
+                    object_x = (int)closestTile.Value.X,
+                    object_y = (int)closestTile.Value.Y
+                });
+            pathfinder?.Dispose();
+            pathfinder = new(RetryPathfinding, StopPathfinding);
+            pathfinder.StartPathfinding(player, location, closestTile.Value.ToPoint(), horsePath);
+        }
+        else
+        {
+            MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-mounted_path_blocked", true);
         }
     }
 

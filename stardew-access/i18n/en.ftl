@@ -92,7 +92,7 @@ feature-mount_state-mounted = Mounted {$name}.{$is_grid_active ->
   }
 feature-mount_state-dismounted = Dismounted {$name}
 feature-mount_state-default_mount_name = horse
-feature-object_tracker-mounted_path_blocked = The horse doesn't fit along this path. Dismount to continue on foot.
+feature-object_tracker-mounted_path_blocked = No rideable path found. Dismount to walk there.
 
 
 # Building operations

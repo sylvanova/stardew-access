@@ -51,15 +51,6 @@ namespace stardew_access.Utils
 				{
 					if (player.controller.timerSinceLastCheckPoint > CheckPointTimeout)
 					{
-						// While riding, a stall usually means the horse physically doesn't fit
-						// along the tile-based path; retrying won't change that, so stop with
-						// one clear message instead of the retry loop.
-						if (player.isRidingHorse())
-						{
-							MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-mounted_path_blocked", true);
-							StopPathfinding();
-							return;
-						}
 						if (pathfindingRetryAttempts < MaxRetryAttempts)
 						{
 							pathfindingRetryAttempts++;
@@ -105,6 +96,30 @@ namespace stardew_access.Utils
 				{
 					StopPathfinding();
 				});
+			}
+		}
+
+		/// <summary>
+		/// Starts pathfinding along a precomputed path (used for the mounted player,
+		/// whose paths must be horse-viable; see MovementHelpers.FindHorsePath).
+		/// </summary>
+		internal void StartPathfinding(Farmer player, GameLocation location, Point targetTile, Stack<Point> path, int? direction = null)
+		{
+			lock (pathfindingLock)
+			{
+				IsActive = true;
+				LastTargetedTile = targetTile.ToVector2();
+				StopTimers();
+				StartTimers();
+
+				player.controller = new PathFindController(path, location, player, targetTile)
+				{
+					finalFacingDirection = direction ?? DefaultDirection,
+					endBehaviorFunction = (Character farmer, GameLocation location) =>
+					{
+						StopPathfinding();
+					},
+				};
 			}
 		}
 
