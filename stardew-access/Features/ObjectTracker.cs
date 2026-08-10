@@ -46,6 +46,7 @@ internal class ObjectTracker : FeatureBase
     private readonly List<Action> updateActions;
     private int currentActionIndex = 0;
     private bool countHasChanged = false;
+    private Vector2 lastStepSoundTile = Vector2.Zero;
 
     private static ObjectTracker? instance;
     public new static ObjectTracker Instance
@@ -115,8 +116,25 @@ internal class ObjectTracker : FeatureBase
             return;            
         }
 
+        PlayStepSoundWhileAutoWalking();
+
         if (e.IsMultipleOf(5))
             Tick();
+    }
+
+    /// <summary>
+    /// Plays one step sound (hoof sound while riding) for every tile actually moved
+    /// during auto walking, so the step rhythm always matches the real speed.
+    /// </summary>
+    private void PlayStepSoundWhileAutoWalking()
+    {
+        if (pathfinder == null || !pathfinder.IsActive) return;
+
+        Vector2 currentTile = Game1.player.Tile;
+        if (currentTile == lastStepSoundTile) return;
+
+        lastStepSoundTile = currentTile;
+        PlayStepSound(Game1.currentLocation, currentTile);
     }
 
     public override bool OnButtonPressed(object? sender, ButtonPressedEventArgs e)

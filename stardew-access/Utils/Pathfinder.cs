@@ -22,9 +22,8 @@ namespace stardew_access.Utils
 		private readonly int MSBetweenCheckingPathfindingController;
 		public bool IsActive;
 
-		// No extra footstep sounds are played here; the game itself plays terrain-aware
-		// footsteps from the walking animation (and hoof sounds from the horse's animation
-		// when riding), already matching the actual movement speed.
+		// Step sounds during auto walk are played per tile moved by ObjectTracker
+		// (MovementHelpers.PlayStepSound), not by a timer here.
 		public Pathfinder(Func<int, int, Vector2?, bool> retryAction, Action<Vector2?> stopAction, int maxRetryAttempts = 5, int defaultDirection = -1, int checkPointTimeout = 500, int msBetweenCheckingPathfindingController = 1000)
 		{
 			this.retryAction = retryAction;
