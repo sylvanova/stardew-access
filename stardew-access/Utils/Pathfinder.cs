@@ -51,6 +51,15 @@ namespace stardew_access.Utils
 				{
 					if (player.controller.timerSinceLastCheckPoint > CheckPointTimeout)
 					{
+						// While riding, a stall usually means the horse physically doesn't fit
+						// along the tile-based path; retrying won't change that, so stop with
+						// one clear message instead of the retry loop.
+						if (player.isRidingHorse())
+						{
+							MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-mounted_path_blocked", true);
+							StopPathfinding();
+							return;
+						}
 						if (pathfindingRetryAttempts < MaxRetryAttempts)
 						{
 							pathfindingRetryAttempts++;

@@ -86,9 +86,13 @@ feature-grid_movement_status = Grid movement status: {$is_active ->
     [0] Inactive
     *[1] Active
   }
-feature-mount_state-mounted = Mounted {$name}
+feature-mount_state-mounted = Mounted {$name}.{$is_grid_active ->
+    [1] {" "}Riding freely, grid movement resumes on dismount.
+    *[0] {EMPTYSTRING()}
+  }
 feature-mount_state-dismounted = Dismounted {$name}
 feature-mount_state-default_mount_name = horse
+feature-object_tracker-mounted_path_blocked = The horse doesn't fit along this path. Dismount to continue on foot.
 
 
 # Building operations

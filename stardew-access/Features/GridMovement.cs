@@ -68,6 +68,7 @@ internal class GridMovement : FeatureBase
 
         Farmer player = Game1.player;
         if (MainClass.ModHelper == null) return;
+        if (player.isRidingHorse()) return; // riding uses the game's normal movement
         if (!LastGridMovementButtonPressed.HasValue) return;
 
         SButton button = LastGridMovementButtonPressed.Value.ToSButton();
@@ -93,11 +94,19 @@ internal class GridMovement : FeatureBase
             return false;
         }
 
-        // GridMovement 
+        // GridMovement
         if (is_warping)
         {
             MainClass.ModHelper!.Input.Suppress(e.Button);
             return true;
+        }
+
+        // While riding the horse, grid movement steps aside entirely: the player
+        // rides with the game's normal continuous movement (real hoof sounds from
+        // the animation, vanilla warps and physics). Resumes on dismount.
+        if (Game1.player.isRidingHorse())
+        {
+            return false;
         }
 
         if (!Context.CanPlayerMove)
