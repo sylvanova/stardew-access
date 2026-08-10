@@ -536,6 +536,8 @@ menu-confirmation_dialogue-cancel_button = {$dialogue_message}
   Cancel button
 menu-confirmation_dialogue-copy_button = {$dialogue_message}
   Copy to clipboard button
+menu-ready_check-waiting = {$dialogue_message}
+  Press escape to cancel
 
 ### Item List Menu
 
