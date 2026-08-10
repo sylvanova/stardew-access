@@ -127,10 +127,17 @@ namespace stardew_access.Utils
             int[] dx = [0, 1, 0, -1];
             int[] dy = [-1, 0, 1, 0];
 
+            // Costs are scaled by 10 so a small penalty for changing direction can be
+            // added: straighter paths keep the horse's riding animation (and its real
+            // hoof sounds) running instead of restarting at every zig-zag turn.
+            const int stepCost = 10;
+            const int turnPenalty = 2;
+
             PriorityQueue<Point, int> openList = new();
             Dictionary<Point, Point> cameFrom = [];
+            Dictionary<Point, int> directionTo = [];
             Dictionary<Point, int> costSoFar = new() { [start] = 0 };
-            openList.Enqueue(start, Math.Abs(end.X - start.X) + Math.Abs(end.Y - start.Y));
+            openList.Enqueue(start, stepCost * (Math.Abs(end.X - start.X) + Math.Abs(end.Y - start.Y)));
             int visited = 0;
 
             while (openList.Count > 0 && visited++ < limit)
@@ -144,6 +151,7 @@ namespace stardew_access.Utils
                     return path;
                 }
 
+                directionTo.TryGetValue(current, out int currentDirection);
                 for (int i = 0; i < 4; i++)
                 {
                     Point next = new(current.X + dx[i], current.Y + dy[i]);
@@ -151,11 +159,13 @@ namespace stardew_access.Utils
                     // (The start tile itself is never re-entered thanks to the cost check.)
                     if (!HasHorseClearance(next.X, next.Y)) continue;
 
-                    int newCost = costSoFar[current] + 1;
+                    int newCost = costSoFar[current] + stepCost
+                        + ((current != start && i != currentDirection) ? turnPenalty : 0);
                     if (costSoFar.TryGetValue(next, out int existing) && existing <= newCost) continue;
                     costSoFar[next] = newCost;
                     cameFrom[next] = current;
-                    openList.Enqueue(next, newCost + Math.Abs(end.X - next.X) + Math.Abs(end.Y - next.Y));
+                    directionTo[next] = i;
+                    openList.Enqueue(next, newCost + stepCost * (Math.Abs(end.X - next.X) + Math.Abs(end.Y - next.Y)));
                 }
             }
 
