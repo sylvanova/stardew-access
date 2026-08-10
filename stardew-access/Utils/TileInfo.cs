@@ -504,6 +504,11 @@ public class TileInfo
         if (DoorUtils.IsWarpAtTile((x, y), currentLocation)) return false;
 
         Rectangle playerBoundingBox = Game1.player.GetBoundingBox();
+        // While riding, GetBoundingBox() returns the horse's box, which is wider than a
+        // tile; using it here would flag adjacent obstacles and block grid movement
+        // entirely near fences or buildings. Always test with the on-foot farmer size.
+        if (Game1.player.isRidingHorse())
+            playerBoundingBox = new Rectangle(playerBoundingBox.X, playerBoundingBox.Y, 48, 32);
         Rectangle tileBoundingBox = new(x * Game1.tileSize, y * Game1.tileSize, playerBoundingBox.Width, playerBoundingBox.Height);
 
         bool isItUnPassable = false;
