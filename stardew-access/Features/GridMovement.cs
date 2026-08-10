@@ -252,7 +252,7 @@ internal class GridMovement : FeatureBase
             //valid point
             player.Position = tileLocation * Game1.tileSize;
             if (++StepCounter % tilesPerStep == 0)
-                location.playTerrainSound(tileLocation);
+                PlayStepSound(location, tileLocation);
             CenterPlayer();
         }
     }
@@ -262,8 +262,12 @@ internal class GridMovement : FeatureBase
 #if DEBUG
         Log.Verbose($"GridMovement.HandleWarpInteraction: Handling Warp {warp} from location {location} at {tileLocation}");
 #endif
-        if (TileInfo.GetDoorAtTile(location, (int)tileLocation.X, (int)tileLocation.Y, true, true) is not null
-            || DynamicTiles.GetDynamicTileAt(location, (int)tileLocation.X, (int)tileLocation.Y, lessInfo: true).category == CATEGORY.Doors)
+        // While riding, pressing the action button dismounts the horse, so skip the
+        // door handling and use the plain warp path below (mounted travel only happens
+        // outdoors, where "door" tiles are just warps and can't be locked).
+        if (!Game1.player.isRidingHorse()
+            && (TileInfo.GetDoorAtTile(location, (int)tileLocation.X, (int)tileLocation.Y, true, true) is not null
+                || DynamicTiles.GetDynamicTileAt(location, (int)tileLocation.X, (int)tileLocation.Y, lessInfo: true).category == CATEGORY.Doors))
         {
             // Manually check for door and pressActionButton() method instead of warping (warping also works when the door is locked, for example it warps to the Pierre's shop before it's opening time)
 #if DEBUG

@@ -29,6 +29,30 @@ namespace stardew_access.Utils
             Game1.player.Position = Vector2.Divide(Game1.player.Position, Game1.tileSize) * Game1.tileSize;
         }
 
+        /// <summary>
+        /// Plays one step sound for the given tile: hoof sounds while riding
+        /// (same terrain mapping as the game's Horse.OnMountFootstep), normal
+        /// terrain footsteps otherwise.
+        /// </summary>
+        internal static void PlayStepSound(GameLocation location, Vector2 tile)
+        {
+            if (Game1.player.isRidingHorse())
+            {
+                string? stepType = location.doesTileHaveProperty((int)tile.X, (int)tile.Y, "Type", "Back");
+                string sound = stepType switch
+                {
+                    "Stone" => "stoneStep",
+                    "Wood" => "woodyStep",
+                    _ => "thudStep",
+                };
+                location.localSound(sound, tile);
+            }
+            else
+            {
+                location.playTerrainSound(tile);
+            }
+        }
+
         internal static void FacePlayerToTargetTile(Vector2 targetTile)
         {
             var player = Game1.player;

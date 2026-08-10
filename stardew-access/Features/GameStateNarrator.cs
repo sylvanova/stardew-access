@@ -15,6 +15,8 @@ internal class GameStateNarrator : FeatureBase
     private static GameLocation? currentLocation;
     private static GameLocation? previousLocation;
 
+    private static StardewValley.Characters.Horse? previousMount;
+
     private static string lastNormalizedHudMessage = "";
     private static HUDMessage? lastSpokenHudMessage = null;
     private static DateTime lastHudMessageTime = DateTime.MinValue;
@@ -39,6 +41,8 @@ internal class GameStateNarrator : FeatureBase
     public override void Update(object? sender, UpdateTickedEventArgs e)
     {
         RunHudMessageNarration();
+
+        NarrateMountState();
 
         if (!Context.IsPlayerFree) return;
 
@@ -85,6 +89,53 @@ internal class GameStateNarrator : FeatureBase
         }
     }
 
+
+    /// <summary>
+    /// Announces mounting and dismounting the horse, whatever the cause
+    /// (manual, auto walk, warps, action button), so the player always knows
+    /// whether they are riding.
+    /// </summary>
+    public static void NarrateMountState()
+    {
+        try
+        {
+            if (!Context.IsWorldReady)
+            {
+                previousMount = null;
+                return;
+            }
+
+            StardewValley.Characters.Horse? currentMount = Game1.player?.mount;
+            if (currentMount == previousMount)
+                return;
+
+            StardewValley.Characters.Horse? dismountedFrom = previousMount;
+            previousMount = currentMount;
+
+            if (currentMount != null)
+            {
+                MainClass.ScreenReader.TranslateAndSay("feature-mount_state-mounted", true,
+                    new { name = GetMountName(currentMount) });
+            }
+            else
+            {
+                MainClass.ScreenReader.TranslateAndSay("feature-mount_state-dismounted", true,
+                    new { name = GetMountName(dismountedFrom) });
+            }
+        }
+        catch (Exception e)
+        {
+            Log.Error($"An error occurred in narrating the mount state:\n{e.Message}\n{e.StackTrace}");
+        }
+    }
+
+    private static string GetMountName(StardewValley.Characters.Horse? mount)
+    {
+        string? name = mount?.displayName;
+        return string.IsNullOrWhiteSpace(name)
+            ? Translator.Instance.Translate("feature-mount_state-default_mount_name")
+            : name;
+    }
 
     /// <summary>
     /// Narrates the current location name when moving to a new location.

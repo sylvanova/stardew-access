@@ -20,11 +20,16 @@ public class TileMarkingCommands
         List<string> buildingInfos = [];
         foreach (var building in buildings)
         {
+            if (buildingIndex >= BuildingOperations.availableBuildings.Length) break;
             BuildingOperations.availableBuildings[buildingIndex] = building;
+            // GetData() is null for buildings without a data entry (e.g. from broken/removed mods)
+            string name = building.GetData() is { } buildingData
+                ? TokenParser.ParseText(buildingData.Name)
+                : building.buildingType.Value;
             buildingInfos.Add(Translator.Instance.Translate("commands-tile_marking-build_list-building_info", new
             {
                 index = buildingIndex,
-                name = TokenParser.ParseText(building.GetData().Name),
+                name,
                 x_position = building.tileX.Value,
                 y_position = building.tileY.Value
             }, translationCategory: TranslationCategory.CustomCommands));
