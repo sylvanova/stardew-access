@@ -262,12 +262,27 @@ internal class GridMovement : FeatureBase
 #if DEBUG
         Log.Verbose($"GridMovement.HandleWarpInteraction: Handling Warp {warp} from location {location} at {tileLocation}");
 #endif
-        // While riding, pressing the action button dismounts the horse, so skip the
-        // door handling and use the plain warp path below (mounted travel only happens
-        // outdoors, where "door" tiles are just warps and can't be locked).
-        if (!Game1.player.isRidingHorse()
-            && (TileInfo.GetDoorAtTile(location, (int)tileLocation.X, (int)tileLocation.Y, true, true) is not null
-                || DynamicTiles.GetDynamicTileAt(location, (int)tileLocation.X, (int)tileLocation.Y, lessInfo: true).category == CATEGORY.Doors))
+        // While riding, both the door handling (pressActionButton) and location.checkAction
+        // run the game's horse interaction, which dismounts the player - and dismounting in
+        // the middle of a warp leaves the player frozen. Warp directly instead, exactly like
+        // vanilla does when a mounted player rides into a warp at the map edge; the game then
+        // keeps the horse for outdoor targets and dismounts cleanly for indoor ones.
+        if (Game1.player.isRidingHorse())
+        {
+            timer.Stop();
+            timer.Interval = TimerInterval;
+            timer.Start();
+
+            // TODO Replace with custom sound
+            Game1.playSound("doorOpen");
+            // The direction overload applies the game's mounted warp offsets.
+            Game1.player.warpFarmer(warp, Game1.player.FacingDirection);
+            is_warping = true;
+            return;
+        }
+
+        if (TileInfo.GetDoorAtTile(location, (int)tileLocation.X, (int)tileLocation.Y, true, true) is not null
+            || DynamicTiles.GetDynamicTileAt(location, (int)tileLocation.X, (int)tileLocation.Y, lessInfo: true).category == CATEGORY.Doors)
         {
             // Manually check for door and pressActionButton() method instead of warping (warping also works when the door is locked, for example it warps to the Pierre's shop before it's opening time)
 #if DEBUG
