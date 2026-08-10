@@ -129,6 +129,8 @@ internal class ObjectTracker : FeatureBase
     private void PlayStepSoundWhileAutoWalking()
     {
         if (pathfinder == null || !pathfinder.IsActive) return;
+        // While riding, the horse's own animation plays the hoof sounds.
+        if (Game1.player.isRidingHorse()) return;
 
         Vector2 currentTile = Game1.player.Tile;
         if (currentTile == lastStepSoundTile) return;

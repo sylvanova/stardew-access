@@ -115,7 +115,11 @@ internal class GameStateNarrator : FeatureBase
             if (currentMount != null)
             {
                 MainClass.ScreenReader.TranslateAndSay("feature-mount_state-mounted", true,
-                    new { name = GetMountName(currentMount) });
+                    new
+                    {
+                        name = GetMountName(currentMount),
+                        is_grid_active = MainClass.Config.GridMovementActive ? 1 : 0,
+                    });
             }
             else
             {
