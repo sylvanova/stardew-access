@@ -174,6 +174,10 @@ internal class GridMovement : FeatureBase
 
     public override void OnPlayerWarped(object? sender, WarpedEventArgs e)
     {
+        // While riding, warps happen through the game's normal movement (grid movement
+        // is bypassed), so play the area-change cue here.
+        if (Game1.player.isRidingHorse())
+            Game1.playSound("doorOpen");
         HandleFinishedWarping();
         StepCounter = 0;
     }
