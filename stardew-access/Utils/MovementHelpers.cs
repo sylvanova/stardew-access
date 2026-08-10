@@ -95,7 +95,7 @@ namespace stardew_access.Utils
         /// requires that clearance for every step, producing routes the horse can
         /// actually follow.
         /// </summary>
-        internal static Stack<Point>? FindHorsePath(GameLocation location, Point start, Point end, int limit = 800)
+        internal static Stack<Point>? FindHorsePath(GameLocation location, Point start, Point end, int limit = 10000)
         {
             if (start == end) return null;
 
