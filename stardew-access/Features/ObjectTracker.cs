@@ -56,6 +56,9 @@ internal class ObjectTracker : FeatureBase
             return instance;
         }
     }
+
+    /// <summary>Whether Object Tracker is currently driving an auto-walk route.</summary>
+    internal static bool IsAutoWalking => instance?.pathfinder?.IsActive == true;
     
     private enum CycleType
     {
@@ -181,6 +184,11 @@ internal class ObjectTracker : FeatureBase
 
     public override void OnPlayerWarped(object? sender, WarpedEventArgs e)
     {
+        // A route belongs to the location where it was calculated. Clear it before
+        // refreshing the tracker so it can't move the player in the new map.
+        if (pathfinder?.IsActive == true)
+            pathfinder.StopPathfinding();
+
         // reset the objects being tracked
         GetLocationObjects(resetFocus: true);
         // reset favorites stack to the first stack for new location.
@@ -631,6 +639,12 @@ internal class ObjectTracker : FeatureBase
         Vector2 playerTile = player.Tile;
         Vector2? sObjectTile = (sObject != null) ? sObject.TileLocation : (Vector2?)null;
 
+        if (player.isRidingHorse())
+        {
+            MoveToCurrentlySelectedObjectMounted(player, sObject, sObjectTile);
+            return;
+        }
+
         Vector2? closestTile = SelectedCoordinates ?? (sObject is not null ? (sObject.PathfindingOverride != null ? GetClosestTilePath((Vector2)sObject.PathfindingOverride) : GetClosestTilePath(sObjectTile)) : null);
         SelectedCoordinates = null;
 
@@ -650,6 +664,47 @@ internal class ObjectTracker : FeatureBase
         {
             MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-could_not_find_path", true);
         }
+    }
+
+    private void MoveToCurrentlySelectedObjectMounted(Farmer player, SpecialObject? sObject, Vector2? sObjectTile)
+    {
+        Vector2? closestTile;
+        Stack<Point>? mountedPath;
+
+        if (SelectedCoordinates is Vector2 selectedCoordinates)
+        {
+            closestTile = selectedCoordinates;
+            mountedPath = FindMountedPath(Game1.currentLocation, player.TilePoint, selectedCoordinates.ToPoint());
+        }
+        else
+        {
+            Vector2? target = sObject?.PathfindingOverride ?? sObjectTile;
+            (closestTile, mountedPath) = GetClosestMountedTilePath(target);
+        }
+        SelectedCoordinates = null;
+
+        if (closestTile == null || mountedPath == null)
+        {
+            MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-could_not_find_path", true);
+            return;
+        }
+
+        if (mountedPath.Count == 0)
+        {
+            FacePlayerToTargetTile(closestTile.Value);
+            ReadCurrentlySelectedObject();
+            return;
+        }
+
+        MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-moving_to", true,
+            translationTokens: new
+            {
+                object_x = (int)closestTile.Value.X,
+                object_y = (int)closestTile.Value.Y
+            });
+        pathfinder?.Dispose();
+        pathfinder = new(RetryPathfinding, StopPathfinding);
+        pathfinder.StartPathfinding(player, Game1.currentLocation, closestTile.Value.ToPoint(), mountedPath);
     }
 
     public void SaveToFavorites(int hotkey)

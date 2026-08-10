@@ -42,6 +42,7 @@ internal class PatchManager
             new GameLocationPatch(),
             new IClickableMenuPatch(),
             new InstanceGamePatch(),
+            new MountedAutoWalkAnimationPatch(),
             new OptionsInputListenerPatch(),
             new PetBowlPatch(),
             new SoundsHelperPatch(),

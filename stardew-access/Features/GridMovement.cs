@@ -67,6 +67,8 @@ internal class GridMovement : FeatureBase
             return;
 
         Farmer player = Game1.player;
+        // A horse should use Stardew Valley's normal continuous riding controls.
+        if (player.isRidingHorse()) return;
         if (MainClass.ModHelper == null) return;
         if (!LastGridMovementButtonPressed.HasValue) return;
 
@@ -90,6 +92,17 @@ internal class GridMovement : FeatureBase
         // Exit if in a menu
         if (Game1.activeClickableMenu != null)
         {
+            return false;
+        }
+
+        // Don't suppress or replace direction input while mounted. Vanilla movement
+        // is what drives the horse animation and its native hoof callbacks.
+        if (Game1.player.isRidingHorse())
+        {
+            timer.Stop();
+            is_moving = false;
+            LastGridMovementButtonPressed = null;
+            LastGridMovementDirection = null;
             return false;
         }
 

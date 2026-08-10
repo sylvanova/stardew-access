@@ -49,7 +49,9 @@ namespace stardew_access.Utils
 			try
 			{
 				Farmer player = Game1.player;
-				if (player.controller != null)
+				// Mounted movement uses Horse.OnMountFootstep through the real vanilla
+				// riding animation. Never layer a synthetic terrain sound over it.
+				if (player.controller != null && !player.isRidingHorse())
 				{
 					player.currentLocation.playTerrainSound(player.Tile);
 				}
@@ -107,6 +109,7 @@ namespace stardew_access.Utils
 			lock (pathfindingLock)
 			{
 				IsActive = true;
+				pathfindingRetryAttempts = 0;
 				LastTargetedTile = targetTile.ToVector2();
 				StopTimers();
 				StartTimers();
@@ -115,6 +118,25 @@ namespace stardew_access.Utils
 				{
 					StopPathfinding();
 				});
+			}
+		}
+
+		internal void StartPathfinding(Farmer player, GameLocation location, Point targetTile, Stack<Point> path, int? direction = null)
+		{
+			direction ??= DefaultDirection;
+			lock (pathfindingLock)
+			{
+				IsActive = true;
+				pathfindingRetryAttempts = 0;
+				LastTargetedTile = targetTile.ToVector2();
+				StopTimers();
+				StartTimers();
+
+				player.controller = new PathFindController(path, location, player, targetTile)
+				{
+					finalFacingDirection = direction.Value,
+					endBehaviorFunction = (Character farmer, GameLocation currentLocation) => StopPathfinding(),
+				};
 			}
 		}
 

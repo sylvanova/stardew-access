@@ -60,7 +60,137 @@ namespace stardew_access.Utils
             Game1.player.FarmerSprite.PauseForSingleAnimation = false;
             if (Game1.player.CurrentTool is FishingRod fishingRod)
                 fishingRod.isFishing = false;
-            Game1.player.mount?.dismount();
+        }
+
+        /// <summary>
+        /// Find a route using the mounted player's real collision box instead of the
+        /// game's one-tile pathfinding approximation.
+        /// </summary>
+        internal static Stack<Point>? FindMountedPath(GameLocation location, Point start, Point end, int limit = 10000)
+        {
+            if (start == end)
+                return new Stack<Point>();
+
+            Rectangle playerBox = Game1.player.GetBoundingBox();
+            int width = location.map.Layers[0].LayerWidth;
+            int height = location.map.Layers[0].LayerHeight;
+            Dictionary<Point, bool> passableCache = [];
+
+            bool IsPassable(Point tile)
+            {
+                if (tile.X < 0 || tile.Y < 0 || tile.X >= width || tile.Y >= height)
+                    return false;
+
+                if (!passableCache.TryGetValue(tile, out bool passable))
+                {
+                    int centerX = tile.X * Game1.tileSize + Game1.tileSize / 2;
+                    int centerY = tile.Y * Game1.tileSize + Game1.tileSize / 2;
+                    Rectangle candidateBox = new(
+                        centerX - playerBox.Width / 2,
+                        centerY - playerBox.Height / 2,
+                        playerBox.Width,
+                        playerBox.Height
+                    );
+
+                    // A warp is a destination, not a route node. Stopping beside it
+                    // avoids carrying a controller into the next location.
+                    passable = !DoorUtils.IsWarpAtTile((tile.X, tile.Y), location)
+                        && !location.isCollidingPosition(
+                            candidateBox,
+                            Game1.viewport,
+                            isFarmer: true,
+                            0,
+                            glider: false,
+                            Game1.player,
+                            pathfinding: true
+                        );
+                    passableCache[tile] = passable;
+                }
+
+                return passable;
+            }
+
+            if (!IsPassable(end))
+                return null;
+
+            int[] deltaX = [0, 1, 0, -1];
+            int[] deltaY = [-1, 0, 1, 0];
+            PriorityQueue<Point, int> open = new();
+            Dictionary<Point, Point> cameFrom = [];
+            Dictionary<Point, int> cost = new() { [start] = 0 };
+            open.Enqueue(start, Math.Abs(end.X - start.X) + Math.Abs(end.Y - start.Y));
+            int visited = 0;
+
+            while (open.Count > 0 && visited++ < limit)
+            {
+                Point current = open.Dequeue();
+                if (current == end)
+                {
+                    Stack<Point> path = new();
+                    for (Point node = end; node != start; node = cameFrom[node])
+                        path.Push(node);
+                    return path;
+                }
+
+                for (int direction = 0; direction < 4; direction++)
+                {
+                    Point next = new(current.X + deltaX[direction], current.Y + deltaY[direction]);
+                    if (!IsPassable(next))
+                        continue;
+
+                    int nextCost = cost[current] + 1;
+                    if (cost.TryGetValue(next, out int existingCost) && existingCost <= nextCost)
+                        continue;
+
+                    cost[next] = nextCost;
+                    cameFrom[next] = current;
+                    int distance = Math.Abs(end.X - next.X) + Math.Abs(end.Y - next.Y);
+                    open.Enqueue(next, nextCost + distance);
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Find the nearest reachable place around a tracked target for a mounted player.
+        /// Larger rings matter for wide horses near map entrances and other obstacles.
+        /// </summary>
+        internal static (Vector2? tile, Stack<Point>? path) GetClosestMountedTilePath(Vector2? tilePosition)
+        {
+            if (tilePosition == null)
+                return (null, null);
+
+            Point start = Game1.player.TilePoint;
+            Point target = tilePosition.Value.ToPoint();
+
+            for (int radius = 1; radius <= 6; radius++)
+            {
+                Vector2? bestTile = null;
+                Stack<Point>? bestPath = null;
+
+                for (int offsetX = -radius; offsetX <= radius; offsetX++)
+                {
+                    for (int offsetY = -radius; offsetY <= radius; offsetY++)
+                    {
+                        if (Math.Abs(offsetX) != radius && Math.Abs(offsetY) != radius)
+                            continue;
+
+                        Point candidate = new(target.X + offsetX, target.Y + offsetY);
+                        Stack<Point>? path = FindMountedPath(Game1.currentLocation, start, candidate);
+                        if (path != null && (bestPath == null || path.Count < bestPath.Count))
+                        {
+                            bestTile = candidate.ToVector2();
+                            bestPath = path;
+                        }
+                    }
+                }
+
+                if (bestPath != null)
+                    return (bestTile, bestPath);
+            }
+
+            return (null, null);
         }
 
         private static Vector2? GetClosestNavigableTile(List<Vector2> tiles, Vector2? tilePosition, Vector2 playerLocation)
