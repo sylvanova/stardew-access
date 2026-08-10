@@ -129,9 +129,18 @@ internal class ObjectTracker : FeatureBase
     private void PlayStepSoundWhileAutoWalking()
     {
         if (pathfinder == null || !pathfinder.IsActive) return;
-        // While riding, the horse's own animation plays the hoof sounds.
-        if (Game1.player.isRidingHorse()) return;
 
+        // Extra guard against the stale-controller teleport (see OnPlayerWarped), in
+        // case the warp event is missed.
+        if (Game1.player.controller != null && Game1.player.controller.location != Game1.currentLocation)
+        {
+            Game1.player.controller = null;
+            pathfinder.StopPathfinding();
+            return;
+        }
+
+        // The horse's walk animation (and thus its own hoof sounds) doesn't run during
+        // controller movement, so mounted auto walk needs explicit step sounds too.
         Vector2 currentTile = Game1.player.Tile;
         if (currentTile == lastStepSoundTile) return;
 
@@ -201,6 +210,16 @@ internal class ObjectTracker : FeatureBase
 
     public override void OnPlayerWarped(object? sender, WarpedEventArgs e)
     {
+        // Stop auto walking the moment the player changes location: a still-active
+        // PathFindController from the old location teleports the player to its end
+        // point's coordinates in the NEW map (vanilla behavior when the controller's
+        // location no longer matches), which caused warp ping-pong loops.
+        if (pathfinder != null && pathfinder.IsActive)
+        {
+            Game1.player.controller = null;
+            pathfinder.StopPathfinding();
+        }
+
         // reset the objects being tracked
         GetLocationObjects(resetFocus: true);
         // reset favorites stack to the first stack for new location.
