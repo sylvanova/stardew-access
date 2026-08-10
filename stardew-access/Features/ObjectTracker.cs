@@ -57,6 +57,9 @@ internal class ObjectTracker : FeatureBase
             return instance;
         }
     }
+
+    /// <summary>Whether object tracker auto walking is currently driving the player.</summary>
+    internal static bool IsAutoWalking => instance?.pathfinder?.IsActive == true;
     
     private enum CycleType
     {
@@ -139,8 +142,11 @@ internal class ObjectTracker : FeatureBase
             return;
         }
 
-        // The horse's walk animation (and thus its own hoof sounds) doesn't run during
-        // controller movement, so mounted auto walk needs explicit step sounds too.
+        // While riding, the horse's real walk animation now runs during auto walk
+        // (HorseUpdatePatch keeps it alive through the per-tile checkpoint blips), so
+        // its genuine hoof sounds play; no extra sounds needed.
+        if (Game1.player.isRidingHorse()) return;
+
         Vector2 currentTile = Game1.player.Tile;
         if (currentTile == lastStepSoundTile) return;
 

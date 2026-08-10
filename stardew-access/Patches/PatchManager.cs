@@ -40,6 +40,7 @@ internal class PatchManager
             new FarmerTeamPatch(),
             new Game1Patch(),
             new GameLocationPatch(),
+            new HorseUpdatePatch(),
             new IClickableMenuPatch(),
             new InstanceGamePatch(),
             new OptionsInputListenerPatch(),
