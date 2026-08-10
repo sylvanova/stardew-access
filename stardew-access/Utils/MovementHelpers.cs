@@ -87,6 +87,109 @@ namespace stardew_access.Utils
             Game1.player.mount?.dismount();
         }
 
+        /// <summary>
+        /// A* pathfinding for the mounted player. The game's own pathfinding only checks
+        /// single tiles, but the horse's bounding box spans the standing tile plus its
+        /// east neighbor, so paths that are valid on foot stall the horse. This search
+        /// requires that clearance for every step, producing routes the horse can
+        /// actually follow.
+        /// </summary>
+        internal static Stack<Point>? FindHorsePath(GameLocation location, Point start, Point end, int limit = 800)
+        {
+            if (start == end) return null;
+
+            Dictionary<Point, bool> passableCache = [];
+            bool IsTilePassable(int x, int y)
+            {
+                Point p = new(x, y);
+                if (!passableCache.TryGetValue(p, out bool passable))
+                {
+                    passable = !location.isCollidingPosition(
+                        new Rectangle(x * 64 + 1, y * 64 + 1, 62, 62),
+                        Game1.viewport, isFarmer: true, 0, glider: false, Game1.player, pathfinding: true);
+                    passableCache[p] = passable;
+                }
+                return passable;
+            }
+            // The horse's box covers the standing tile and the one east of it.
+            bool HasHorseClearance(int x, int y) => IsTilePassable(x, y) && IsTilePassable(x + 1, y);
+
+            if (!HasHorseClearance(end.X, end.Y)) return null;
+
+            int width = location.map.Layers[0].LayerWidth;
+            int height = location.map.Layers[0].LayerHeight;
+            int[] dx = [0, 1, 0, -1];
+            int[] dy = [-1, 0, 1, 0];
+
+            PriorityQueue<Point, int> openList = new();
+            Dictionary<Point, Point> cameFrom = [];
+            Dictionary<Point, int> costSoFar = new() { [start] = 0 };
+            openList.Enqueue(start, Math.Abs(end.X - start.X) + Math.Abs(end.Y - start.Y));
+            int visited = 0;
+
+            while (openList.Count > 0 && visited++ < limit)
+            {
+                Point current = openList.Dequeue();
+                if (current == end)
+                {
+                    Stack<Point> path = new();
+                    for (Point p = end; p != start; p = cameFrom[p])
+                        path.Push(p);
+                    return path;
+                }
+
+                for (int i = 0; i < 4; i++)
+                {
+                    Point next = new(current.X + dx[i], current.Y + dy[i]);
+                    if (next.X < 0 || next.Y < 0 || next.X >= width || next.Y >= height) continue;
+                    // (The start tile itself is never re-entered thanks to the cost check.)
+                    if (!HasHorseClearance(next.X, next.Y)) continue;
+
+                    int newCost = costSoFar[current] + 1;
+                    if (costSoFar.TryGetValue(next, out int existing) && existing <= newCost) continue;
+                    costSoFar[next] = newCost;
+                    cameFrom[next] = current;
+                    openList.Enqueue(next, newCost + Math.Abs(end.X - next.X) + Math.Abs(end.Y - next.Y));
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Mounted variant of <see cref="GetClosestTilePath"/>: picks the closest tile
+        /// around the target that the horse can reach and stand on, and returns the
+        /// horse-viable path to it.
+        /// </summary>
+        internal static (Vector2? tile, Stack<Point>? path) GetClosestHorseTilePath(Vector2? tilePosition)
+        {
+            if (tilePosition == null) return (null, null);
+
+            GameLocation location = Game1.currentLocation;
+            Point start = Game1.player.TilePoint;
+
+            foreach (var stage in Stages)
+            {
+                Vector2? bestTile = null;
+                Stack<Point>? bestPath = null;
+
+                foreach (var offset in stage)
+                {
+                    Vector2 candidate = tilePosition.Value + offset;
+                    Stack<Point>? path = FindHorsePath(location, start, candidate.ToPoint());
+                    if (path != null && (bestPath == null || path.Count < bestPath.Count))
+                    {
+                        bestTile = candidate;
+                        bestPath = path;
+                    }
+                }
+
+                if (bestPath != null) return (bestTile, bestPath);
+            }
+
+            return (null, null);
+        }
+
         private static Vector2? GetClosestNavigableTile(List<Vector2> tiles, Vector2? tilePosition, Vector2 playerLocation)
         {
             if (tilePosition == null) return null;

@@ -99,6 +99,30 @@ namespace stardew_access.Utils
 			}
 		}
 
+		/// <summary>
+		/// Starts pathfinding along a precomputed path (used for the mounted player,
+		/// whose paths must be horse-viable; see MovementHelpers.FindHorsePath).
+		/// </summary>
+		internal void StartPathfinding(Farmer player, GameLocation location, Point targetTile, Stack<Point> path, int? direction = null)
+		{
+			lock (pathfindingLock)
+			{
+				IsActive = true;
+				LastTargetedTile = targetTile.ToVector2();
+				StopTimers();
+				StartTimers();
+
+				player.controller = new PathFindController(path, location, player, targetTile)
+				{
+					finalFacingDirection = direction ?? DefaultDirection,
+					endBehaviorFunction = (Character farmer, GameLocation location) =>
+					{
+						StopPathfinding();
+					},
+				};
+			}
+		}
+
 		internal void StopPathfinding()
 		{
 			lock (pathfindingLock)
