@@ -14,6 +14,23 @@ namespace stardew_access.Patches
     {
         internal static bool isNarratingQuestInfo = false;
         internal static bool firstTimeInIndividualQuest = true;
+        internal static bool firstTimeInList = true;
+
+        // Vanilla only snaps the cursor in this menu when SnappyMenus (controller mode) is on,
+        // so for keyboard users the cursor stays wherever it was and nothing gets hovered,
+        // leaving the whole menu silent. Snap it ourselves.
+        private static void SnapToComponent(QuestLog menu, int componentId)
+        {
+            if (menu.allClickableComponents == null)
+                menu.populateClickableComponentList();
+
+            var component = menu.getComponentWithID(componentId);
+            if (component == null)
+                return;
+
+            menu.currentlySnappedComponent = component;
+            menu.snapCursorToCurrentSnappedComponent();
+        }
 
         public void Apply(Harmony harmony)
         {
@@ -49,7 +66,18 @@ namespace stardew_access.Patches
             string translationKey = "";
             object? translationTokens = null;
 
-            if (!firstTimeInIndividualQuest) firstTimeInIndividualQuest = true;
+            if (firstTimeInList || !firstTimeInIndividualQuest)
+            {
+                // Menu just opened, or we returned from a quest's detail page: put the
+                // cursor on the first quest so it is announced and arrow keys work from there.
+                firstTimeInList = false;
+                if (!firstTimeInIndividualQuest) firstTimeInIndividualQuest = true;
+                if (___pages.Count > 0 && ___pages[___currentPage].Count > 0)
+                {
+                    SnapToComponent(__instance, 0);
+                    return; // narrate the now-hovered quest next frame
+                }
+            }
 
             if (__instance.backButton != null && __instance.backButton.visible && __instance.backButton.containsPoint(x, y))
                 translationKey = "common-ui-previous_page_button";
@@ -91,6 +119,7 @@ namespace stardew_access.Patches
             string description = ____shownQuest.GetDescription();
             string translationKey = "";
 
+            bool justOpenedQuestDetail = firstTimeInIndividualQuest;
             if (firstTimeInIndividualQuest || (isPrimaryInfoKeyPressed && !isNarratingQuestInfo))
             {
                 firstTimeInIndividualQuest = false;
@@ -124,6 +153,25 @@ namespace stardew_access.Patches
                 MainClass.ScreenReader.PrevMenuQueryText = "";
                 isNarratingQuestInfo = true;
                 Task.Delay(200).ContinueWith(_ => { isNarratingQuestInfo = false; });
+
+                if (justOpenedQuestDetail)
+                {
+                    // Mirror what vanilla does under SnappyMenus when a quest is opened:
+                    // wire the detail-page neighbors and park the cursor on the back button,
+                    // so the queued details above get spoken with it next frame and arrow
+                    // keys reach the reward/cancel buttons.
+                    if (__instance.allClickableComponents == null)
+                        __instance.populateClickableComponentList();
+                    var backComponent = __instance.getComponentWithID(102);
+                    if (backComponent != null)
+                    {
+                        backComponent.rightNeighborID = -7777;
+                        backComponent.downNeighborID = __instance.HasMoneyReward() ? 103 : (____shownQuest.CanBeCancelled() ? 104 : -1);
+                        __instance.currentlySnappedComponent = backComponent;
+                        __instance.snapCursorToCurrentSnappedComponent();
+                        return; // next frame speaks the queued details together with the back button
+                    }
+                }
             }
 
             if (__instance.backButton != null && __instance.backButton.visible && __instance.backButton.containsPoint(x, y))
@@ -137,13 +185,20 @@ namespace stardew_access.Patches
             else if (containsReward && __instance.rewardBox.containsPoint(x, y))
                 translationKey = "menu-quest_log-reward_button";
 
-            MainClass.ScreenReader.TranslateAndSayWithMenuChecker(translationKey, true);
+            if (!string.IsNullOrEmpty(translationKey))
+                MainClass.ScreenReader.TranslateAndSayWithMenuChecker(translationKey, true);
+            else if (!string.IsNullOrEmpty(MainClass.ScreenReader.MenuPrefixNoQueryText))
+                // Nothing is hovered for the queued quest details to piggyback on
+                // (e.g. the back button couldn't be snapped to); speak them directly
+                // so the description is never lost.
+                MainClass.ScreenReader.SayWithMenuChecker(" ", true, customQuery: "quest-details");
         }
 
         internal static void Cleanup()
         {
             isNarratingQuestInfo = false;
             firstTimeInIndividualQuest = true;
+            firstTimeInList = true;
         }
     }
 }
