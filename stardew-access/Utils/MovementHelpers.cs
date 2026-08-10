@@ -105,9 +105,14 @@ namespace stardew_access.Utils
                 Point p = new(x, y);
                 if (!passableCache.TryGetValue(p, out bool passable))
                 {
-                    passable = !location.isCollidingPosition(
-                        new Rectangle(x * 64 + 1, y * 64 + 1, 62, 62),
-                        Game1.viewport, isFarmer: true, 0, glider: false, Game1.player, pathfinding: true);
+                    // Warp tiles count as walls: auto walk must never drag the mounted
+                    // player through a map exit (a surviving controller then teleports
+                    // them; see ObjectTracker.OnPlayerWarped). The ride stops next to
+                    // the exit and the player crosses it themselves by riding on.
+                    passable = !DoorUtils.IsWarpAtTile((x, y), location)
+                        && !location.isCollidingPosition(
+                            new Rectangle(x * 64 + 1, y * 64 + 1, 62, 62),
+                            Game1.viewport, isFarmer: true, 0, glider: false, Game1.player, pathfinding: true);
                     passableCache[p] = passable;
                 }
                 return passable;
