@@ -1,5 +1,4 @@
 using HarmonyLib;
-using Microsoft.Xna.Framework.Input;
 using stardew_access.Translation;
 using stardew_access.Utils;
 using StardewValley;
@@ -10,6 +9,7 @@ namespace stardew_access.Patches;
 internal class ShippingMenuPatch : IPatch
 {
     private static int previousTab = -1;
+    private static int previousPage = -1;
 
     public void Apply(Harmony harmony)
     {
@@ -17,43 +17,18 @@ internal class ShippingMenuPatch : IPatch
             original: AccessTools.DeclaredMethod(typeof(ShippingMenu), "draw"),
             postfix: new HarmonyMethod(typeof(ShippingMenuPatch), nameof(ShippingMenuPatch.DrawPatch))
         );
-
-        harmony.Patch(
-            original: AccessTools.DeclaredMethod(typeof(ShippingMenu), nameof(ShippingMenu.receiveKeyPress)),
-            prefix: new HarmonyMethod(typeof(ShippingMenuPatch), nameof(ShippingMenuPatch.ReceiveKeyPressPatch))
-        );
     }
 
-    private static bool ReceiveKeyPressPatch(ShippingMenu __instance, Keys key)
+    private static void SnapToComponent(ShippingMenu menu, ClickableComponent component)
     {
-        try
-        {
-            // Vanilla ignores keyboard menu/back keys in this menu while gamepad controls are
-            // enabled. Restore the same back/continue behavior that keyboard mode provides.
-            bool isMenuBackKey = key == Keys.Escape
-                                 || Game1.options.doesInputListContain(Game1.options.menuButton, key);
-            if (!Game1.options.gamepadControls || !isMenuBackKey || !__instance.CanReceiveInput())
-                return true;
-
-            ClickableTextureComponent target = __instance.currentPage == -1
-                ? __instance.okButton
-                : __instance.backButton;
-            __instance.receiveLeftClick(target.bounds.Center.X, target.bounds.Center.Y);
-            return false;
-        }
-        catch (Exception e)
-        {
-            Log.Error($"An error occurred handling a shipping menu back key:\n{e.Message}\n{e.StackTrace}");
-            return true;
-        }
+        menu.currentlySnappedComponent = component;
+        menu.snapCursorToCurrentSnappedComponent();
     }
 
     private static void DrawPatch(ShippingMenu __instance, List<int> ___categoryTotals, List<List<Item>> ___categoryItems, Dictionary<Item, int> ___itemValues, Dictionary<Item, int> ___singleItemValues, bool ___outro, bool ___newDayPlaque)
     {
         try
         {
-            int x = Game1.getMouseX(true), y = Game1.getMouseY(true); // Mouse x and y position
-
             MouseUtils.SimulateMouseClicks((x, y) => __instance.receiveLeftClick(x, y),
                     (x, y) => __instance.receiveRightClick(x, y));
 
@@ -62,12 +37,24 @@ internal class ShippingMenuPatch : IPatch
                 if (___newDayPlaque)
                     MainClass.ScreenReader.SayWithMenuChecker(Utility.getDateString(), true);
                 previousTab = -1;
+                previousPage = -1;
                 return;
             }
 
             if (__instance.currentPage == -1)
             {
                 previousTab = -1;
+
+                // Returning from a category page should put keyboard focus back on the
+                // category the player opened, so its total is announced and Ctrl+Enter
+                // can open it again.
+                if (previousPage >= 0 && previousPage < __instance.categories.Count)
+                {
+                    SnapToComponent(__instance, __instance.categories[previousPage]);
+                }
+                previousPage = -1;
+
+                int x = Game1.getMouseX(true), y = Game1.getMouseY(true);
 
                 int total = ___categoryTotals[5];
                 string toSpeak;
@@ -100,6 +87,16 @@ internal class ShippingMenuPatch : IPatch
             }
             else
             {
+                bool enteredCategory = previousPage != __instance.currentPage;
+                if (enteredCategory)
+                {
+                    previousPage = __instance.currentPage;
+                    previousTab = -1;
+                    SnapToComponent(__instance, __instance.backButton);
+                }
+
+                int x = Game1.getMouseX(true), y = Game1.getMouseY(true);
+
                 // Speak category wise profit break down
                 List<string> displayedItems = [];
                 for (int i = __instance.currentTab * __instance.itemsPerCategoryPage; i < __instance.currentTab * __instance.itemsPerCategoryPage + __instance.itemsPerCategoryPage; i++)
@@ -130,7 +127,9 @@ internal class ShippingMenuPatch : IPatch
                     hoveredButton = Translator.Instance.Translate("common-ui-next_page_button", translationCategory: TranslationCategory.Menu);
                 }
 
-                if (MainClass.ScreenReader.SayWithMenuChecker(displayedItemsString + hoveredButton, true, customQuery: hoveredButton))
+                string detailQuery = $"shipping-details:{__instance.currentPage}:{__instance.currentTab}:{hoveredButton}";
+                if (MainClass.ScreenReader.SayWithMenuChecker(displayedItemsString + hoveredButton, true,
+                        customQuery: detailQuery))
                 {
                     previousTab = __instance.currentTab;
                 }

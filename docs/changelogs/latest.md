@@ -8,7 +8,7 @@
 
 ### Bug Fixes
 
-- Fixed the end-of-day shipping details screen ignoring Escape when gamepad controls are enabled. Escape now returns through item pages to the shipping summary, then continues to the overnight save as expected.
+- Fixed the end-of-day shipping details screen not reading the item breakdown or providing usable keyboard focus. Opening a category now reads its items and prices with focus on the Back button; Ctrl+Enter returns to the selected category on the shipping summary.
 - Fixed Object Tracker auto-travel while mounted, including horse-width routing near entrances, preserving the mount across routes, and restoring the normal horse animation and native hoof sounds.
 - The multiplayer "waiting for players" dialog (sleeping, festivals) can now be cancelled with escape; vanilla ignores all key presses there, leaving keyboard users stuck until every player was ready. The dialog also announces the cancel hint while waiting.
 - Object Tracker auto-walk now announces "could not find path" when the game cannot compute a route (for example the target tile is blocked by the horse, an NPC or another player) instead of silently not walking; a stalled walk that runs out of retries now announces it stopped instead of silently freezing the feature.
