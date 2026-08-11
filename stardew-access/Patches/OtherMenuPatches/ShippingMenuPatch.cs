@@ -1,4 +1,5 @@
 using HarmonyLib;
+using Microsoft.Xna.Framework.Input;
 using stardew_access.Translation;
 using stardew_access.Utils;
 using StardewValley;
@@ -16,6 +17,35 @@ internal class ShippingMenuPatch : IPatch
             original: AccessTools.DeclaredMethod(typeof(ShippingMenu), "draw"),
             postfix: new HarmonyMethod(typeof(ShippingMenuPatch), nameof(ShippingMenuPatch.DrawPatch))
         );
+
+        harmony.Patch(
+            original: AccessTools.DeclaredMethod(typeof(ShippingMenu), nameof(ShippingMenu.receiveKeyPress)),
+            prefix: new HarmonyMethod(typeof(ShippingMenuPatch), nameof(ShippingMenuPatch.ReceiveKeyPressPatch))
+        );
+    }
+
+    private static bool ReceiveKeyPressPatch(ShippingMenu __instance, Keys key)
+    {
+        try
+        {
+            // Vanilla ignores keyboard menu/back keys in this menu while gamepad controls are
+            // enabled. Restore the same back/continue behavior that keyboard mode provides.
+            bool isMenuBackKey = key == Keys.Escape
+                                 || Game1.options.doesInputListContain(Game1.options.menuButton, key);
+            if (!Game1.options.gamepadControls || !isMenuBackKey || !__instance.CanReceiveInput())
+                return true;
+
+            ClickableTextureComponent target = __instance.currentPage == -1
+                ? __instance.okButton
+                : __instance.backButton;
+            __instance.receiveLeftClick(target.bounds.Center.X, target.bounds.Center.Y);
+            return false;
+        }
+        catch (Exception e)
+        {
+            Log.Error($"An error occurred handling a shipping menu back key:\n{e.Message}\n{e.StackTrace}");
+            return true;
+        }
     }
 
     private static void DrawPatch(ShippingMenu __instance, List<int> ___categoryTotals, List<List<Item>> ___categoryItems, Dictionary<Item, int> ___itemValues, Dictionary<Item, int> ___singleItemValues, bool ___outro, bool ___newDayPlaque)
