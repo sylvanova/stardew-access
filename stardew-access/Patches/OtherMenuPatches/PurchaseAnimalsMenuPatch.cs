@@ -15,6 +15,7 @@ internal class PurchaseAnimalsMenuPatch : IPatch
     internal static PurchaseAnimalsMenu? purchaseAnimalsMenu;
     
     private static bool firstTimeInNamingMenu = true;
+    private static string? previousName = null;
 
     public void Apply(Harmony harmony)
     {
@@ -28,7 +29,13 @@ internal class PurchaseAnimalsMenuPatch : IPatch
     {
         try
         {
-            if (TextBoxPatch.IsAnyTextBoxActive) return;
+            if (TextBoxPatch.IsAnyTextBoxActive)
+            {
+                // While the name box is focused it announces its own text changes;
+                // keep our tracker in sync so leaving the box doesn't re-announce.
+                if (___onFarm && ___namingAnimal) previousName = ___textBox.Text;
+                return;
+            }
 
             int x = Game1.getMouseX(true), y = Game1.getMouseY(true); // Mouse x and y position
             purchaseAnimalsMenu = __instance;
@@ -43,12 +50,14 @@ internal class PurchaseAnimalsMenuPatch : IPatch
             else if (___onFarm && !___namingAnimal && !Game1.IsFading())
             {
                 firstTimeInNamingMenu = true;
+                previousName = null;
 	        string selectBuildingPrompt = Game1.content.LoadString("Strings\\StringsFromCSFiles:PurchaseAnimalsMenu.cs.11355", animalBeingPurchased.displayHouse, animalBeingPurchased.displayType);
                 MainClass.ScreenReader.SayWithMenuChecker(selectBuildingPrompt, true);
             }
             else if (!___onFarm && !___namingAnimal)
             {
                 firstTimeInNamingMenu = true;
+                previousName = null;
                 NarratePurchasingMenu(__instance);
             }
         }
@@ -60,6 +69,16 @@ internal class PurchaseAnimalsMenuPatch : IPatch
 
     private static void NarrateNamingMenu(PurchaseAnimalsMenu __instance, TextBox ___textBox, int x, int y)
     {
+        // Announce the new name when it changes while the name box is not focused,
+        // e.g. after pressing the random name button; mirrors NamingMenuPatch.
+        if (previousName != null && !string.IsNullOrEmpty(___textBox.Text) && ___textBox.Text != previousName)
+        {
+            previousName = ___textBox.Text;
+            MainClass.ScreenReader.Say(___textBox.Text, true);
+            return;
+        }
+        previousName = ___textBox.Text;
+
         string translationKey = "";
         object? translationTokens = null;
         if (__instance.okButton != null && __instance.okButton.containsPoint(x, y))
@@ -120,6 +139,7 @@ internal class PurchaseAnimalsMenuPatch : IPatch
     internal static void Cleanup()
     {
         firstTimeInNamingMenu = true;
+        previousName = null;
         purchaseAnimalsMenu = null;
     }
 }
