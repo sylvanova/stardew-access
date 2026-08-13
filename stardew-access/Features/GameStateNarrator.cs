@@ -17,9 +17,11 @@ internal class GameStateNarrator : FeatureBase
 
     private static StardewValley.Characters.Horse? previousMount;
 
-    private static string lastNormalizedHudMessage = "";
-    private static HUDMessage? lastSpokenHudMessage = null;
-    private static DateTime lastHudMessageTime = DateTime.MinValue;
+    // Per-message dedup state: a single "last message" slot cannot cope with two or more
+    // messages being (re-)added at the same time — they keep displacing each other in the
+    // slot and every displacement re-triggers speech (endless interrupt loop).
+    private static readonly Dictionary<string, DateTime> recentHudMessageTexts = new();
+    private static readonly HashSet<HUDMessage> handledHudMessages = new(ReferenceEqualityComparer.Instance);
     private static bool isNarratingHudMessage = false;
 
     private static GameStateNarrator? instance;
@@ -177,25 +179,41 @@ internal class GameStateNarrator : FeatureBase
         try
         {
             if (Game1.hudMessages.Count <= 0)
-                return;
-
-            int lastIndex = Game1.hudMessages.Count - 1;
-            HUDMessage lastMessage = Game1.hudMessages[lastIndex];
-            string toSpeak = lastMessage.message;
-            string normalized = Regex.Replace(toSpeak, "[0-9]+", "").Trim();
-            var now = DateTime.Now;
-            bool isSimilar = normalized == lastNormalizedHudMessage;
-            bool isNewObject = lastMessage != lastSpokenHudMessage;
-            bool timeoutExpired = (now - lastHudMessageTime) >= TimeSpan.FromMilliseconds(MainClass.Config.HudDuplicateMessageTimeout);
-
-            if ((timeoutExpired  || !isSimilar) && isNewObject)
             {
-                lastNormalizedHudMessage = normalized;
-                lastSpokenHudMessage = lastMessage;
-                lastHudMessageTime = now;
-                MainClass.ScreenReader.Say(toSpeak, true);
+                if (handledHudMessages.Count > 0) handledHudMessages.Clear();
+                return;
+            }
+
+            var now = DateTime.Now;
+            TimeSpan duplicateWindow = TimeSpan.FromMilliseconds(MainClass.Config.HudDuplicateMessageTimeout);
+            List<string>? newTexts = null;
+
+            // Each message object is handled at most once; its text is spoken at most once
+            // per duplicate window even if the game re-adds it as a new object every tick.
+            foreach (HUDMessage message in Game1.hudMessages)
+            {
+                if (message is null || !handledHudMessages.Add(message)) continue;
+                string toSpeak = message.message ?? "";
+                if (string.IsNullOrWhiteSpace(toSpeak)) continue;
+                string normalized = Regex.Replace(toSpeak, "[0-9]+", "").Trim();
+                if (recentHudMessageTexts.TryGetValue(normalized, out DateTime spokenAt) && (now - spokenAt) < duplicateWindow)
+                    continue;
+                recentHudMessageTexts[normalized] = now;
+                (newTexts ??= new List<string>()).Add(toSpeak);
                 HudMessagesBuffer.Add(toSpeak);
             }
+
+            handledHudMessages.RemoveWhere(m => !Game1.hudMessages.Contains(m));
+            if (recentHudMessageTexts.Count > 32)
+            {
+                List<string> expired = new();
+                foreach (var pair in recentHudMessageTexts)
+                    if ((now - pair.Value) >= duplicateWindow) expired.Add(pair.Key);
+                foreach (string key in expired) recentHudMessageTexts.Remove(key);
+            }
+
+            if (newTexts is not null)
+                MainClass.ScreenReader.Say(string.Join(", ", newTexts), true);
         }
         catch (Exception e)
         {

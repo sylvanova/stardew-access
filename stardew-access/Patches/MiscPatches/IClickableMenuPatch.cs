@@ -111,6 +111,35 @@ internal class IClickableMenuPatch : IPatch
     
     private static bool _tryHoverPatch = false;
 
+    // Menus whose narration is already covered by a dedicated patch, including modded
+    // SUBCLASSES of such menus (e.g. a chest-style menu extending ItemGrabMenu): the
+    // subclass inherits the vanilla draw method, so the dedicated Harmony patch still
+    // narrates it — if the generic fallback also ran, the two narrators would fight over
+    // the shared dedup slot and speech would restart every frame. A subclass that
+    // overrides draw with its own method is NOT skipped, since the dedicated patch may
+    // never fire for it and the fallback is all it has.
+    private static readonly Dictionary<Type, bool> DedicatedNarrationCache = new();
+
+    private static bool HasDedicatedNarration(Type menuType)
+    {
+        if (SkipMenuTypes.Contains(menuType)) return true;
+        if (DedicatedNarrationCache.TryGetValue(menuType, out bool cached)) return cached;
+
+        bool covered = false;
+        for (Type? baseType = menuType.BaseType; baseType != null && baseType != typeof(IClickableMenu); baseType = baseType.BaseType)
+        {
+            if (!SkipMenuTypes.Contains(baseType)) continue;
+            var drawMethod = menuType.GetMethod("draw", [typeof(SpriteBatch)]);
+            covered = drawMethod?.DeclaringType?.Assembly == typeof(IClickableMenu).Assembly;
+            if (covered)
+                Log.Debug($"[IClickableMenuPatch::HasDedicatedNarration] Skipping generic narration for {menuType.FullName}: inherits narrated menu {baseType.Name}", once: true);
+            break;
+        }
+
+        DedicatedNarrationCache[menuType] = covered;
+        return covered;
+    }
+
     // ReSharper disable once FieldCanBeMadeReadOnly.Global
     internal static HashSet<string> ManuallyPatchedCustomMenus = [];
     
@@ -264,7 +293,7 @@ internal class IClickableMenuPatch : IPatch
             else ManuallyCallingDrawPatch = false;
 
             var activeMenuType = activeMenu.GetType();
-            if (SkipMenuTypes.Contains(activeMenuType)
+            if (HasDedicatedNarration(activeMenuType)
                 || ManuallyPatchedCustomMenus.Contains(activeMenuType.FullName ?? "")
                 || IgnoreClickableComponentsInMenus.Contains(activeMenuType.FullName ?? ""))
             {

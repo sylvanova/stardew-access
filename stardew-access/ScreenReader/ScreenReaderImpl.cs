@@ -18,6 +18,48 @@ public class ScreenReaderImpl : IScreenReader
     private string menuPrefixNoQueryText = "";
     private string menuSuffixNoQueryText = "";
 
+    // Loop guard for the menu speech channel. All menu narrators share one dedup slot
+    // (prevMenuText); when two narration sources alternate for the same on-screen state
+    // (e.g. a dedicated menu patch and the generic fallback narrator), each keeps
+    // replacing the other's slot value, the dedup never matches, and speech restarts
+    // every frame. Track queries spoken recently: a query that keeps recurring within
+    // the window is a loop and gets suppressed until the situation changes.
+    private const long QueryRecurrenceWindowMs = 1000;
+    private sealed class RecurringQuery { public long LastSeenMs; public int Strikes; }
+    private readonly Dictionary<string, RecurringQuery> recentMenuQueries = new();
+
+    private bool IsLoopingMenuQuery(string query)
+    {
+        long now = Environment.TickCount64;
+        if (recentMenuQueries.TryGetValue(query, out RecurringQuery? entry))
+        {
+            if (now - entry.LastSeenMs < QueryRecurrenceWindowMs)
+            {
+                entry.LastSeenMs = now;
+                // The second occurrence within the window is still spoken (deliberate
+                // quick re-announcements, e.g. toggling a checkbox twice, stay audible);
+                // from the third on it is treated as a loop.
+                if (++entry.Strikes >= 2) return true;
+            }
+            else
+            {
+                entry.LastSeenMs = now;
+                entry.Strikes = 0;
+            }
+            return false;
+        }
+
+        if (recentMenuQueries.Count > 64)
+        {
+            List<string> expired = new();
+            foreach (var pair in recentMenuQueries)
+                if (now - pair.Value.LastSeenMs >= QueryRecurrenceWindowMs) expired.Add(pair.Key);
+            foreach (string key in expired) recentMenuQueries.Remove(key);
+        }
+        recentMenuQueries[query] = new RecurringQuery { LastSeenMs = now };
+        return false;
+    }
+
     public string PrevTextTile
     {
         get => prevTextTile;
@@ -139,6 +181,9 @@ public class ScreenReaderImpl : IScreenReader
         if (prevMenuText == customQuery && prevMenuSuffixText == MenuSuffixText && prevMenuPrefixText == MenuPrefixText)
             return false;
 
+        if (IsLoopingMenuQuery(customQuery))
+            return false;
+
         prevMenuText = customQuery;
         prevMenuSuffixText = MenuSuffixText;
         prevMenuPrefixText = MenuPrefixText;
@@ -165,7 +210,13 @@ public class ScreenReaderImpl : IScreenReader
         if (prevMenuElement != null && System.Object.ReferenceEquals(element, prevMenuElement) && prevMenuText == text && prevMenuSuffixText == MenuSuffixText && prevMenuPrefixText == MenuPrefixText)
             return false;
 
+        if (IsLoopingMenuQuery(text))
+            return false;
+
         prevMenuElement = element;
+        // Also update the shared query slot: without this, any other narrator speaking in
+        // between resets our dedup and this element would re-announce every frame.
+        prevMenuText = text;
         prevMenuSuffixText = MenuSuffixText;
         prevMenuPrefixText = MenuPrefixText;
         bool re = Say($"{MenuPrefixNoQueryText}{MenuPrefixText}{text}\n{(prevMenuElementDescription != description || !System.Object.ReferenceEquals(element, prevMenuElement) ? description : "")}{MenuSuffixText}{MenuSuffixNoQueryText}", interrupt, excludeFromBuffer: excludeFromBuffer);
@@ -181,6 +232,9 @@ public class ScreenReaderImpl : IScreenReader
         customQuery ??= text;
 
         if (prevMenuText == customQuery && prevMenuSuffixText == MenuSuffixText && prevMenuPrefixText == MenuPrefixText)
+            return false;
+
+        if (IsLoopingMenuQuery(customQuery))
             return false;
 
         prevMenuText = customQuery;
@@ -220,5 +274,6 @@ public class ScreenReaderImpl : IScreenReader
         MainClass.ScreenReader.MenuPrefixText = "";
         MainClass.ScreenReader.MenuSuffixText = "";
         prevMenuElementDescription = "";
+        recentMenuQueries.Clear();
     }
 }
