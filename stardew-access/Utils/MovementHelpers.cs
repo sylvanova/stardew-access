@@ -187,12 +187,11 @@ namespace stardew_access.Utils
 
             byte MaskAt(Point tile) => GetPhaseMask(location, tile, boxWidth, boxHeight, mapWidth, mapHeight, phaseCache);
 
-            if (allowWarpEnd && end.X >= 0 && end.Y >= 0 && end.X < mapWidth && end.Y < mapHeight
-                && DoorUtils.IsWarpAtTile((end.X, end.Y), location))
-            {
-                // Ride onto the exit; MovePositionImpl checks warps before collision.
+            // Ride onto the exit; MovePositionImpl checks warps before collision. No bounds
+            // check: vanilla warps sit one tile OUTSIDE the map edge (e.g. Town->BusStop at
+            // x=-1), and vanilla findPath likewise allows an out-of-bounds endpoint.
+            if (allowWarpEnd && DoorUtils.IsWarpAtTile((end.X, end.Y), location))
                 phaseCache[end] = AnyPhase;
-            }
 
             if (MaskAt(end) == 0)
                 return null;
