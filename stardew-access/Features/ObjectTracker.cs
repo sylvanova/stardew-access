@@ -47,10 +47,29 @@ internal class ObjectTracker : FeatureBase
     private int currentActionIndex = 0;
     private bool countHasChanged = false;
     private Vector2 lastStepSoundTile = Vector2.Zero;
-    // Mounted stall recovery: set from the watchdog timer thread, consumed on the game thread.
-    private Vector2? pendingMountedReplanTarget;
-    private int mountedReplanAttempts;
+    // Mounted stall recovery: the watchdog timer (threadpool) only records a request here;
+    // the game thread consumes it. The generation counter ties a request to one logical
+    // route, so an in-flight callback for a cancelled route can't re-route a newer one.
+    // Lock order: Pathfinder's pathfindingLock is always taken OUTSIDE this gate.
+    private readonly object mountedReplanGate = new();
+    private int mountedRouteGeneration;      // guarded by mountedReplanGate
+    private int pendingMountedGeneration = -1; // guarded; -1 = no pending request
+    private Vector2 pendingMountedTarget;    // guarded
+    private bool pendingMountedGiveUp;       // guarded
+    private int mountedReplanAttempts;       // guarded
     private const int MaxMountedReplans = 3;
+
+    /// <summary>Invalidate pending mounted-stall requests and start a new route generation.</summary>
+    private void ResetMountedReplanState()
+    {
+        lock (mountedReplanGate)
+        {
+            mountedRouteGeneration++;
+            pendingMountedGeneration = -1;
+            pendingMountedGiveUp = false;
+            mountedReplanAttempts = 0;
+        }
+    }
 
     private static ObjectTracker? instance;
     public new static ObjectTracker Instance
@@ -134,26 +153,53 @@ internal class ObjectTracker : FeatureBase
 
         PlayStepSoundWhileAutoWalking();
 
-        if (pendingMountedReplanTarget is Vector2 replanTarget)
-        {
-            pendingMountedReplanTarget = null;
-            ReplanMountedRoute(replanTarget);
-        }
+        ConsumePendingMountedAction();
 
         if (e.IsMultipleOf(5))
             Tick();
     }
 
     /// <summary>
-    /// Re-plan a stalled mounted route from the player's current position (game thread only).
+    /// Handle a mounted-stall request recorded by the watchdog timer: re-plan from the
+    /// player's current position, or stop with feedback when out of attempts. Game thread
+    /// only — the vanilla controller and tracker state must never be touched from the timer.
     /// </summary>
-    private void ReplanMountedRoute(Vector2 target)
+    private void ConsumePendingMountedAction()
     {
+        Vector2? replanTarget = null;
+        bool giveUp = false;
+        lock (mountedReplanGate)
+        {
+            if (pendingMountedGeneration == -1)
+                return;
+            bool current = pendingMountedGeneration == mountedRouteGeneration;
+            if (current)
+            {
+                giveUp = pendingMountedGiveUp;
+                if (!giveUp)
+                {
+                    replanTarget = pendingMountedTarget;
+                    mountedReplanAttempts++;
+                }
+            }
+            // Stale requests (from a route that was since stopped or replaced) are dropped.
+            pendingMountedGeneration = -1;
+            pendingMountedGiveUp = false;
+            if (!current)
+                return;
+        }
+
         if (pathfinder == null || !pathfinder.IsActive || !Game1.player.isRidingHorse())
             return;
 
-        mountedReplanAttempts++;
-        Point targetTile = target.ToPoint();
+        if (giveUp)
+        {
+            MainClass.ScreenReader.Say("Target unreachable, stopping.", true);
+            pathfinder.StopPathfinding();
+            return;
+        }
+
+        Point targetTile = replanTarget!.Value.ToPoint();
         Stack<Point>? path = FindMountedPath(Game1.currentLocation, Game1.player.TilePoint, targetTile, allowWarpEnd: true);
         if (path == null || path.Count == 0)
         {
@@ -335,13 +381,19 @@ internal class ObjectTracker : FeatureBase
     private bool RetryPathfinding(int attemptNumber, int maxRetries, Vector2? lastTargetedTile)
     {
         // Mounted routes stall on geometry, not just on NPCs; ghosting doesn't help there.
-        // Ask the game thread to re-plan from the current position instead (the watchdog
-        // timer runs on a threadpool thread, where touching player.controller is unsafe).
+        // Record a request for the game thread instead — the watchdog timer runs on a
+        // threadpool thread, where neither player.controller nor tracker state may be
+        // touched. Even the give-up is deferred, so always return true here (returning
+        // false would make the timer stop the route from its own thread).
         if (Game1.player.isRidingHorse())
         {
-            if (mountedReplanAttempts >= MaxMountedReplans || lastTargetedTile == null)
-                return false;
-            pendingMountedReplanTarget = lastTargetedTile;
+            lock (mountedReplanGate)
+            {
+                pendingMountedGiveUp = mountedReplanAttempts >= MaxMountedReplans || lastTargetedTile == null;
+                if (!pendingMountedGiveUp)
+                    pendingMountedTarget = lastTargetedTile!.Value;
+                pendingMountedGeneration = mountedRouteGeneration;
+            }
             return true;
         }
         if (IsFocusValid() && attemptNumber < maxRetries)
@@ -366,7 +418,7 @@ internal class ObjectTracker : FeatureBase
 
     private void StopPathfinding(Vector2? lastTargetedTile)
     {
-        pendingMountedReplanTarget = null;
+        ResetMountedReplanState();
         FixCharacterMovement();
         if (lastTargetedTile != null) FacePlayerToTargetTile(lastTargetedTile.Value);
         ReadCurrentlySelectedObject();
@@ -784,8 +836,7 @@ internal class ObjectTracker : FeatureBase
                 object_x = (int)closestTile.Value.X,
                 object_y = (int)closestTile.Value.Y
             });
-        mountedReplanAttempts = 0;
-        pendingMountedReplanTarget = null;
+        ResetMountedReplanState();
         pathfinder?.Dispose();
         pathfinder = new(RetryPathfinding, StopPathfinding);
         pathfinder.StartPathfinding(player, Game1.currentLocation, closestTile.Value.ToPoint(), mountedPath);
