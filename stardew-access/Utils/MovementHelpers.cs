@@ -62,59 +62,146 @@ namespace stardew_access.Utils
                 fishingRod.isFishing = false;
         }
 
+        // --- Mounted pathfinding ---
+        //
+        // The mounted collision box (the horse's) is 96px wide: 1.5 tiles. Centering it on
+        // a tile overhangs both horizontal neighbours, which rejects 2-tile corridors the
+        // game itself rides through fine (PathFindController only steers the box CENTER
+        // into each node tile, and Farmer.MovePositionImpl's corner assist strafes around
+        // one-sided obstructions). So passability is tracked per lateral PLACEMENT: the box
+        // center at 16, 32 or 48px within the tile. Sliding between valid placements inside
+        // one tile is always safe (the swept area is the union of the end boxes), so the
+        // search stays tile-level; but a vertical step needs a placement valid in BOTH tiles,
+        // otherwise the plan can demand a sideways shift the engine has no room to perform.
+
+        private static readonly int[] PhaseOffsets = [16, 32, 48];
+        private const byte AnyPhase = 0b0111;
+        // Open fence gate: crossable vertically only, via Horse.squeezeForGate (the squeeze
+        // shrinks the box just for north/south facing, and triggers from Farmer.collideWith
+        // during controller-driven movement too).
+        private const byte GateBit = 0b1000;
+
         /// <summary>
-        /// Find a route using the mounted player's real collision box instead of the
-        /// game's one-tile pathfinding approximation.
+        /// The mounted collision box size, reconstructed from the horse sprite so that a
+        /// squeeze frame at plan time (Horse.GetBoundingBox shrinks mid-gate) can't produce
+        /// an over-permissive probe.
         /// </summary>
-        internal static Stack<Point>? FindMountedPath(GameLocation location, Point start, Point end, int limit = 10000)
+        private static (int width, int height) GetMountedBoxSize()
+        {
+            var mount = Game1.player.mount;
+            if (mount?.Sprite != null)
+            {
+                int spriteWidth = mount.forceOneTileWide.Value ? 16 : mount.Sprite.SpriteWidth;
+                return (spriteWidth * 4 * 3 / 4, 32);
+            }
+            Rectangle box = Game1.player.GetBoundingBox();
+            return (box.Width, box.Height);
+        }
+
+        private static bool IsOpenGate(GameLocation location, Point tile)
+        {
+            return location.objects.TryGetValue(new Vector2(tile.X, tile.Y), out var obj)
+                && obj is StardewValley.Fence fence && fence.isGate.Value && fence.isPassable();
+        }
+
+        /// <summary>
+        /// Which lateral placements of the mounted box are collision-free on this tile.
+        /// Probes are side-effect-free: character is null (with ignoreCharacterRequirement)
+        /// so planning can't trigger gate squeezes, animal pushes or TemporaryPassableTiles
+        /// mutations; pathfinding=true skips NPCs, and animals are ignored entirely — they
+        /// move, get pushed at ride time, or trigger a replan.
+        /// </summary>
+        private static byte GetPhaseMask(GameLocation location, Point tile, int boxWidth, int boxHeight,
+            int mapWidth, int mapHeight, Dictionary<Point, byte> cache)
+        {
+            if (cache.TryGetValue(tile, out byte mask))
+                return mask;
+
+            if (tile.X < 0 || tile.Y < 0 || tile.X >= mapWidth || tile.Y >= mapHeight)
+            {
+                cache[tile] = 0;
+                return 0;
+            }
+
+            mask = 0;
+            // A warp mid-route would teleport the player; warps are only ever endpoints
+            // (handled explicitly by the planners below).
+            if (!DoorUtils.IsWarpAtTile((tile.X, tile.Y), location))
+            {
+                for (int i = 0; i < PhaseOffsets.Length; i++)
+                {
+                    Rectangle box = new(
+                        tile.X * Game1.tileSize + PhaseOffsets[i] - boxWidth / 2,
+                        tile.Y * Game1.tileSize + Game1.tileSize / 2 - boxHeight / 2,
+                        boxWidth,
+                        boxHeight
+                    );
+                    if (!location.isCollidingPosition(box, Game1.viewport, isFarmer: true, 0, glider: false,
+                            character: null, pathfinding: true, projectile: false,
+                            ignoreCharacterRequirement: true, skipCollisionEffects: true))
+                    {
+                        mask |= (byte)(1 << i);
+                    }
+                }
+                if (IsOpenGate(location, tile))
+                    mask |= GateBit;
+            }
+
+            cache[tile] = mask;
+            return mask;
+        }
+
+        /// <summary>Whether the horse can step from one tile to an adjacent one.</summary>
+        private static bool IsEdgePassable(byte fromMask, byte toMask, bool vertical)
+        {
+            if (toMask == 0 || fromMask == 0)
+                return false;
+            if (!vertical)
+                // Horizontal motion sweeps the box along the row; both end placements being
+                // clear covers the whole swept area. Gates never open sideways for a horse.
+                return (fromMask & AnyPhase) != 0 && (toMask & AnyPhase) != 0;
+            // Vertical: need a placement valid in both tiles, or a gate squeeze on either side.
+            if ((fromMask & toMask & AnyPhase) != 0)
+                return true;
+            return ((fromMask | toMask) & GateBit) != 0;
+        }
+
+        private static readonly int[] DeltaX = [0, 1, 0, -1];
+        private static readonly int[] DeltaY = [-1, 0, 1, 0];
+
+        /// <summary>
+        /// A* to an exact tile using the mounted collision box.
+        /// <paramref name="allowWarpEnd"/> lets an explicitly requested warp tile (a map
+        /// exit favorite) be the final node; the engine fires the warp on contact.
+        /// </summary>
+        internal static Stack<Point>? FindMountedPath(GameLocation location, Point start, Point end,
+            bool allowWarpEnd = false, int limit = 12000)
         {
             if (start == end)
                 return new Stack<Point>();
 
-            Rectangle playerBox = Game1.player.GetBoundingBox();
-            int width = location.map.Layers[0].LayerWidth;
-            int height = location.map.Layers[0].LayerHeight;
-            Dictionary<Point, bool> passableCache = [];
+            (int boxWidth, int boxHeight) = GetMountedBoxSize();
+            int mapWidth = location.map.Layers[0].LayerWidth;
+            int mapHeight = location.map.Layers[0].LayerHeight;
+            Dictionary<Point, byte> phaseCache = [];
 
-            bool IsPassable(Point tile)
-            {
-                if (tile.X < 0 || tile.Y < 0 || tile.X >= width || tile.Y >= height)
-                    return false;
+            byte MaskAt(Point tile) => GetPhaseMask(location, tile, boxWidth, boxHeight, mapWidth, mapHeight, phaseCache);
 
-                if (!passableCache.TryGetValue(tile, out bool passable))
-                {
-                    int centerX = tile.X * Game1.tileSize + Game1.tileSize / 2;
-                    int centerY = tile.Y * Game1.tileSize + Game1.tileSize / 2;
-                    Rectangle candidateBox = new(
-                        centerX - playerBox.Width / 2,
-                        centerY - playerBox.Height / 2,
-                        playerBox.Width,
-                        playerBox.Height
-                    );
+            // Ride onto the exit; MovePositionImpl checks warps before collision. No bounds
+            // check: vanilla warps sit one tile OUTSIDE the map edge (e.g. Town->BusStop at
+            // x=-1), and vanilla findPath likewise allows an out-of-bounds endpoint.
+            if (allowWarpEnd && DoorUtils.IsWarpAtTile((end.X, end.Y), location))
+                phaseCache[end] = AnyPhase;
 
-                    // A warp is a destination, not a route node. Stopping beside it
-                    // avoids carrying a controller into the next location.
-                    passable = !DoorUtils.IsWarpAtTile((tile.X, tile.Y), location)
-                        && !location.isCollidingPosition(
-                            candidateBox,
-                            Game1.viewport,
-                            isFarmer: true,
-                            0,
-                            glider: false,
-                            Game1.player,
-                            pathfinding: true
-                        );
-                    passableCache[tile] = passable;
-                }
-
-                return passable;
-            }
-
-            if (!IsPassable(end))
+            if (MaskAt(end) == 0)
                 return null;
 
-            int[] deltaX = [0, 1, 0, -1];
-            int[] deltaY = [-1, 0, 1, 0];
+            // The horse is standing on the start tile legally, but possibly at a lateral
+            // position between our probe placements; never let the start tile plan as a wall.
+            byte startMask = MaskAt(start);
+            if ((startMask & AnyPhase) == 0)
+                phaseCache[start] = (byte)(startMask | AnyPhase);
+
             PriorityQueue<Point, int> open = new();
             Dictionary<Point, Point> cameFrom = [];
             Dictionary<Point, int> cost = new() { [start] = 0 };
@@ -132,10 +219,11 @@ namespace stardew_access.Utils
                     return path;
                 }
 
+                byte currentMask = MaskAt(current);
                 for (int direction = 0; direction < 4; direction++)
                 {
-                    Point next = new(current.X + deltaX[direction], current.Y + deltaY[direction]);
-                    if (!IsPassable(next))
+                    Point next = new(current.X + DeltaX[direction], current.Y + DeltaY[direction]);
+                    if (!IsEdgePassable(currentMask, MaskAt(next), vertical: DeltaY[direction] != 0))
                         continue;
 
                     int nextCost = cost[current] + 1;
@@ -149,25 +237,66 @@ namespace stardew_access.Utils
                 }
             }
 
+            if (open.Count > 0)
+                Log.Debug($"FindMountedPath: node budget ({limit}) exhausted before reaching {end}; treating as unreachable.");
             return null;
         }
 
         /// <summary>
         /// Find the nearest reachable place around a tracked target for a mounted player.
-        /// Larger rings matter for wide horses near map entrances and other obstacles.
+        /// One breadth-first flood from the player feeds every ring lookup, instead of a
+        /// separate full search per candidate tile.
         /// </summary>
         internal static (Vector2? tile, Stack<Point>? path) GetClosestMountedTilePath(Vector2? tilePosition)
         {
             if (tilePosition == null)
                 return (null, null);
 
+            GameLocation location = Game1.currentLocation;
             Point start = Game1.player.TilePoint;
             Point target = tilePosition.Value.ToPoint();
 
+            (int boxWidth, int boxHeight) = GetMountedBoxSize();
+            int mapWidth = location.map.Layers[0].LayerWidth;
+            int mapHeight = location.map.Layers[0].LayerHeight;
+            Dictionary<Point, byte> phaseCache = [];
+
+            byte MaskAt(Point tile) => GetPhaseMask(location, tile, boxWidth, boxHeight, mapWidth, mapHeight, phaseCache);
+
+            byte startMask = MaskAt(start);
+            if ((startMask & AnyPhase) == 0)
+                phaseCache[start] = (byte)(startMask | AnyPhase);
+
+            const int FloodLimit = 12000;
+            Queue<Point> frontier = new();
+            Dictionary<Point, Point> cameFrom = [];
+            Dictionary<Point, int> distance = new() { [start] = 0 };
+            frontier.Enqueue(start);
+            int visited = 0;
+
+            while (frontier.Count > 0 && visited++ < FloodLimit)
+            {
+                Point current = frontier.Dequeue();
+                byte currentMask = MaskAt(current);
+                for (int direction = 0; direction < 4; direction++)
+                {
+                    Point next = new(current.X + DeltaX[direction], current.Y + DeltaY[direction]);
+                    if (distance.ContainsKey(next))
+                        continue;
+                    if (!IsEdgePassable(currentMask, MaskAt(next), vertical: DeltaY[direction] != 0))
+                        continue;
+                    distance[next] = distance[current] + 1;
+                    cameFrom[next] = current;
+                    frontier.Enqueue(next);
+                }
+            }
+            if (frontier.Count > 0)
+                Log.Debug($"GetClosestMountedTilePath: flood budget ({FloodLimit}) exhausted; distant targets may read as unreachable.");
+
             for (int radius = 1; radius <= 6; radius++)
             {
-                Vector2? bestTile = null;
-                Stack<Point>? bestPath = null;
+                Point? bestTile = null;
+                int bestDistance = int.MaxValue;
 
                 for (int offsetX = -radius; offsetX <= radius; offsetX++)
                 {
@@ -177,17 +306,21 @@ namespace stardew_access.Utils
                             continue;
 
                         Point candidate = new(target.X + offsetX, target.Y + offsetY);
-                        Stack<Point>? path = FindMountedPath(Game1.currentLocation, start, candidate);
-                        if (path != null && (bestPath == null || path.Count < bestPath.Count))
+                        if (distance.TryGetValue(candidate, out int candidateDistance) && candidateDistance < bestDistance)
                         {
-                            bestTile = candidate.ToVector2();
-                            bestPath = path;
+                            bestTile = candidate;
+                            bestDistance = candidateDistance;
                         }
                     }
                 }
 
-                if (bestPath != null)
-                    return (bestTile, bestPath);
+                if (bestTile is Point found)
+                {
+                    Stack<Point> path = new();
+                    for (Point node = found; node != start; node = cameFrom[node])
+                        path.Push(node);
+                    return (found.ToVector2(), path);
+                }
             }
 
             return (null, null);
