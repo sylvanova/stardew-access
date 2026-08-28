@@ -73,6 +73,13 @@ internal class ObjectTracker : FeatureBase
     }
     private FootRoute? footRoute;
     private const int MaxFootLegs = 60;
+    // Walking this far from the obstacle while waiting means the player gave up on it.
+    private const int FootWaitAbandonDistance = 6;
+    // Set by the pathfinder's stop callback (which the watchdog may fire from its timer
+    // thread); consumed in Update so every announcement and state change stays on the game thread.
+    private volatile bool footLegArrived;
+    // Favorites navigation is requested from a System.Timers callback; run it on the game thread.
+    private volatile int pendingFavoriteNavigation = -1;
 
     /// <summary>Invalidate pending mounted-stall requests and start a new route generation.</summary>
     private void ResetMountedReplanState()
@@ -128,11 +135,12 @@ internal class ObjectTracker : FeatureBase
 
     private void OnNavigationTimerElapsed(object? sender, ElapsedEventArgs? e)
     {
+        // Timer thread: only record the request. Planning floods the map and replaces
+        // player.controller, which must happen on the game thread (see Update).
         if (navigateToFavorite > 0)
         {
-            SetFromFavorites(navigateToFavorite);
+            pendingFavoriteNavigation = navigateToFavorite;
             navigateToFavorite = -1;
-            MoveToCurrentlySelectedObject();
         }
     }
 
@@ -171,6 +179,24 @@ internal class ObjectTracker : FeatureBase
 
         ConsumePendingMountedAction();
 
+        int favorite = pendingFavoriteNavigation;
+        if (favorite > 0)
+        {
+            pendingFavoriteNavigation = -1;
+            SetFromFavorites(favorite);
+            MoveToCurrentlySelectedObject();
+        }
+
+        if (footLegArrived)
+        {
+            footLegArrived = false;
+            if (footRoute is { Pending: { } arrivedAt, Waiting: false })
+            {
+                GetLocationObjects(resetFocus: SortByProximity);
+                AnnounceObstacle(footRoute, arrivedAt);
+            }
+        }
+
         if (e.IsMultipleOf(10))
             CheckFootRouteObstacle();
 
@@ -195,6 +221,13 @@ internal class ObjectTracker : FeatureBase
             return;
         if (pathfinder?.IsActive == true || Game1.player.isRidingHorse())
             return;
+        Point here = Game1.player.TilePoint;
+        if (Math.Abs(here.X - pending.Tile.X) + Math.Abs(here.Y - pending.Tile.Y) > FootWaitAbandonDistance)
+        {
+            footRoute = null;
+            MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-auto_walk_cancelled", true);
+            return;
+        }
         if (FootPathfinder.IsTileBlocked(Game1.currentLocation, pending.Tile))
             return;
 
@@ -216,7 +249,23 @@ internal class ObjectTracker : FeatureBase
             AnnounceNoFootPath(plan);
             return;
         }
+        if (TooManyObstacles(plan))
+        {
+            footRoute = null;
+            return;
+        }
         WalkFootLeg(route, plan);
+    }
+
+    /// <summary>Speak and refuse a plan with more clearable obstacles than the configured limit.</summary>
+    private static bool TooManyObstacles(FootPlan plan)
+    {
+        int limit = MainClass.Config.OTMaxObstaclesOnPath;
+        if (plan.Obstacles.Count <= limit)
+            return false;
+        MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-too_many_obstacles", true,
+            translationTokens: new { count = plan.Obstacles.Count, limit });
+        return true;
     }
 
     private void AnnounceNoFootPath(FootPlan plan)
@@ -255,6 +304,7 @@ internal class ObjectTracker : FeatureBase
         route.Legs++;
         if (route.Legs > MaxFootLegs)
         {
+            Log.Debug($"Foot route to {route.Target} exceeded {MaxFootLegs} legs; giving up.");
             footRoute = null;
             MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-could_not_find_path", true);
             return;
@@ -603,8 +653,7 @@ internal class ObjectTracker : FeatureBase
             if (Game1.player.TilePoint == route.LegEnd && !Game1.player.isRidingHorse())
             {
                 pathfinder?.Dispose();
-                GetLocationObjects(resetFocus: SortByProximity);
-                AnnounceObstacle(route, pending);
+                footLegArrived = true; // announced from Update, on the game thread
                 return;
             }
             footRoute = null;
@@ -1003,6 +1052,16 @@ internal class ObjectTracker : FeatureBase
     private void MoveToCurrentlySelectedObjectThroughObstacles(Farmer player, SpecialObject? sObject, Vector2? sObjectTile)
     {
         CancelFootRoute();
+        if (pathfinder is { IsActive: true })
+        {
+            // A new destination replaces the walk in progress, quietly (the stop callback
+            // would read out the old target). Every branch below either starts a new
+            // controller or expects none.
+            pathfinder.Dispose();
+            pathfinder = null;
+            player.controller = null;
+            FixCharacterMovement();
+        }
         FootPlan plan;
         bool allowWarpEnd = false;
         if (SelectedCoordinates is Vector2 selectedCoordinates)
@@ -1029,12 +1088,8 @@ internal class ObjectTracker : FeatureBase
             return;
         }
 
-        if (plan.Obstacles.Count > MainClass.Config.OTMaxObstaclesOnPath)
-        {
-            MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-too_many_obstacles", true,
-                translationTokens: new { count = plan.Obstacles.Count, limit = MainClass.Config.OTMaxObstaclesOnPath });
+        if (TooManyObstacles(plan))
             return;
-        }
 
         if (plan.Path.Count == 0)
         {

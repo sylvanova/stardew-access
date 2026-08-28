@@ -68,10 +68,9 @@ internal static class FootPathfinder
     private const int CostMineRock = 12;
     private const int CostHeavy = 20;  // stump, log, boulder, meteorite
     private const int CostTree = 30;
-    private const int WarpEndPenalty = 3;
     private const int MaxFloodNodes = 40000;
 
-    internal sealed class TileInfo
+    internal sealed class ProbeInfo
     {
         public ObstacleKind Kind;
         public bool Clearable;
@@ -98,12 +97,20 @@ internal static class FootPathfinder
 
     // --- Tile probing ---------------------------------------------------------------
 
-    /// <summary>Vanilla-style whole-tile probe (PathFindController.findPath uses the same 62x62 box).</summary>
+    /// <summary>
+    /// Vanilla-style whole-tile probe: the same 62x62 box and the same arguments as
+    /// PathFindController.findPath uses for the player. The real farmer is passed on purpose:
+    /// isCollidingPosition derives isFarmer from the character (a null character probes as an
+    /// NPC, with different Buildings-layer and event rules), and Farmer.collideWith only has
+    /// side effects while riding, which this on-foot planner never is. pathfinding=true skips
+    /// characters, skipCollisionEffects blocks the remaining reactions.
+    /// </summary>
     internal static bool IsTileBlocked(GameLocation location, Point tile)
     {
         Rectangle box = new(tile.X * Game1.tileSize + 1, tile.Y * Game1.tileSize + 1, 62, 62);
+        Farmer? probe = Game1.player.isRidingHorse() ? null : Game1.player;
         return location.isCollidingPosition(box, Game1.viewport, isFarmer: true, 0, glider: false,
-            character: null, pathfinding: true, projectile: false,
+            character: probe, pathfinding: true, projectile: false,
             ignoreCharacterRequirement: true, skipCollisionEffects: true);
     }
 
@@ -123,7 +130,7 @@ internal static class FootPathfinder
         return best;
     }
 
-    private static void Set(TileInfo info, ObstacleKind kind, bool clearable, int cost, string name, string toolName)
+    private static void Set(ProbeInfo info, ObstacleKind kind, bool clearable, int cost, string name, string toolName)
     {
         info.Kind = kind;
         info.Clearable = clearable;
@@ -133,9 +140,9 @@ internal static class FootPathfinder
     }
 
     /// <summary>Classify one tile: clear, a clearable obstacle (with tool), or a wall.</summary>
-    internal static TileInfo Classify(GameLocation location, Point tile, Options options, int mapWidth, int mapHeight)
+    internal static ProbeInfo Classify(GameLocation location, Point tile, Options options, int mapWidth, int mapHeight)
     {
-        TileInfo info = new();
+        ProbeInfo info = new();
         if (tile.X < 0 || tile.Y < 0 || tile.X >= mapWidth || tile.Y >= mapHeight)
         {
             Set(info, ObstacleKind.Wall, false, 0, "", "");
@@ -223,19 +230,15 @@ internal static class FootPathfinder
         return info;
     }
 
-    private static void ClassifyClump(TileInfo info, ResourceClump clump, Options options, bool obstaclesAllowed)
+    private static void ClassifyClump(ProbeInfo info, ResourceClump clump, Options options, bool obstaclesAllowed)
     {
         int index = clump.parentSheetIndex.Value;
-        string pickaxe = ToolName("(T)Pickaxe");
-        string axe = ToolName("(T)Axe");
+        // Same names the tile viewer speaks for these clumps (assets/TileData map).
+        string name = stardew_access.Utils.TileInfo.GetResourceClumpName(index);
 
         if (clump is GiantCrop)
         {
-            string name = T("feature-object_tracker-obstacle-giant_crop");
-            if (options.AllowTreesAndBoulders && obstaclesAllowed)
-                Set(info, ObstacleKind.GiantCrop, true, CostTree, name, axe);
-            else
-                Set(info, ObstacleKind.Wall, false, 0, name, "");
+            Heavy(info, ObstacleKind.GiantCrop, name, "(T)Axe", BestToolLevel<Axe>(), 0, options, obstaclesAllowed);
             return;
         }
 
@@ -246,35 +249,50 @@ internal static class FootPathfinder
             case ResourceClump.mineRock3Index:
             case ResourceClump.mineRock4Index:
                 if (obstaclesAllowed)
-                    Set(info, ObstacleKind.MineRock, true, CostMineRock, T("feature-object_tracker-obstacle-mine_rock"), pickaxe);
+                    Set(info, ObstacleKind.MineRock, true, CostMineRock, name, ToolName("(T)Pickaxe"));
                 else
-                    Set(info, ObstacleKind.Wall, false, 0, T("feature-object_tracker-obstacle-mine_rock"), "");
+                    Set(info, ObstacleKind.Wall, false, 0, name, "");
                 return;
             case ResourceClump.stumpIndex:
-                Heavy(info, ObstacleKind.Stump, T("feature-object_tracker-obstacle-stump"), axe, BestToolLevel<Axe>() >= 1, options, obstaclesAllowed);
+                Heavy(info, ObstacleKind.Stump, name, "(T)Axe", BestToolLevel<Axe>(), 1, options, obstaclesAllowed);
                 return;
             case ResourceClump.hollowLogIndex:
-                Heavy(info, ObstacleKind.HollowLog, T("feature-object_tracker-obstacle-hollow_log"), axe, BestToolLevel<Axe>() >= 2, options, obstaclesAllowed);
+                Heavy(info, ObstacleKind.HollowLog, name, "(T)Axe", BestToolLevel<Axe>(), 2, options, obstaclesAllowed);
                 return;
             case ResourceClump.boulderIndex:
-                Heavy(info, ObstacleKind.Boulder, T("feature-object_tracker-obstacle-boulder"), pickaxe, BestToolLevel<Pickaxe>() >= 2, options, obstaclesAllowed);
+                Heavy(info, ObstacleKind.Boulder, name, "(T)Pickaxe", BestToolLevel<Pickaxe>(), 2, options, obstaclesAllowed);
                 return;
             case ResourceClump.meteoriteIndex:
             case ResourceClump.quarryBoulderIndex:
-                Heavy(info, ObstacleKind.Meteorite, T("feature-object_tracker-obstacle-meteorite"), pickaxe, BestToolLevel<Pickaxe>() >= 3, options, obstaclesAllowed);
+                Heavy(info, ObstacleKind.Meteorite, name, "(T)Pickaxe", BestToolLevel<Pickaxe>(), 3, options, obstaclesAllowed);
                 return;
             default:
-                Set(info, ObstacleKind.Wall, false, 0, T("feature-object_tracker-obstacle-clump"), "");
+                Set(info, ObstacleKind.Wall, false, 0, name, "");
                 return;
         }
     }
 
-    private static void Heavy(TileInfo info, ObstacleKind kind, string name, string tool, bool toolGoodEnough, Options options, bool obstaclesAllowed)
+    /// <summary>
+    /// Heavy clumps are clearable only with the option on and a tool that can break them
+    /// (levels from ResourceClump.performToolAction). When they stay a wall, the tool text
+    /// explains why: missing tool, or tool too weak; nothing when the option is simply off.
+    /// </summary>
+    private static void Heavy(ProbeInfo info, ObstacleKind kind, string name, string toolId, int bestLevel, int requiredLevel,
+        Options options, bool obstaclesAllowed)
     {
-        if (options.AllowTreesAndBoulders && obstaclesAllowed && toolGoodEnough)
+        bool optionOn = options.AllowTreesAndBoulders && obstaclesAllowed;
+        string tool = ToolName(toolId);
+        if (optionOn && bestLevel >= requiredLevel)
+        {
             Set(info, kind, true, CostHeavy, name, tool);
-        else
-            Set(info, ObstacleKind.Wall, false, 0, name, toolGoodEnough ? "" : tool);
+            return;
+        }
+        string why = "";
+        if (optionOn)
+            why = bestLevel < 0
+                ? Translator.Instance.Translate("feature-object_tracker-obstacle-needs_tool", new { tool })
+                : Translator.Instance.Translate("feature-object_tracker-obstacle-needs_better_tool", new { tool });
+        Set(info, ObstacleKind.Wall, false, 0, name, why);
     }
 
     // --- Suspension bridges (Ginger Island north) ----------------------------------
@@ -327,7 +345,7 @@ internal static class FootPathfinder
     {
         public readonly Dictionary<Point, int> Cost = [];
         public readonly Dictionary<Point, Point> CameFrom = [];
-        public readonly Dictionary<Point, TileInfo> Tiles = [];
+        public readonly Dictionary<Point, ProbeInfo> Tiles = [];
         public bool BudgetExhausted;
     }
 
@@ -343,9 +361,9 @@ internal static class FootPathfinder
         int budget = Math.Min(MaxFloodNodes, Math.Max(12000, mapWidth * mapHeight * 2));
 
         Flood flood = new();
-        TileInfo InfoAt(Point tile)
+        ProbeInfo InfoAt(Point tile)
         {
-            if (!flood.Tiles.TryGetValue(tile, out TileInfo? info))
+            if (!flood.Tiles.TryGetValue(tile, out ProbeInfo? info))
             {
                 info = Classify(location, tile, options, mapWidth, mapHeight);
                 if (bridges.Span.Contains(tile))
@@ -357,14 +375,14 @@ internal static class FootPathfinder
 
         // The player is standing on the start tile legally even when it probes as blocked
         // (e.g. a wide box edge); never plan it as a wall.
-        TileInfo startInfo = InfoAt(start);
+        ProbeInfo startInfo = InfoAt(start);
         if (!startInfo.Walkable)
             Set(startInfo, ObstacleKind.Clear, false, CostClear, "", "");
         if (goal is Point requestedGoal && options.AllowWarpEnd && DoorUtils.IsWarpAtTile((requestedGoal.X, requestedGoal.Y), location))
         {
             // Vanilla warps can sit one tile off-map (Town -> BusStop at x = -1); accept them as
             // the endpoint regardless of bounds, like the mounted planner does.
-            TileInfo goalInfo = new() { IsWarp = true };
+            ProbeInfo goalInfo = new() { IsWarp = true };
             Set(goalInfo, ObstacleKind.Clear, false, CostClear, "", "");
             flood.Tiles[requestedGoal] = goalInfo;
         }
@@ -396,14 +414,16 @@ internal static class FootPathfinder
                 bool vertical = DeltaY[direction] != 0;
                 if (closed.Contains(next))
                     continue;
-                TileInfo nextInfo = InfoAt(next);
+                ProbeInfo nextInfo = InfoAt(next);
                 if (!nextInfo.Walkable)
                     continue;
                 if (bridges.Any && !BridgeEdgeAllowed(bridges, current, next, vertical))
                     continue;
-                if (nextInfo.IsWarp && !(options.AllowWarpEnd && goal == next) && goal != null)
-                    continue; // direct plan: warps are never a via, and only the explicit goal may be one
-                int nextCost = flood.Cost[current] + nextInfo.Cost + (nextInfo.IsWarp ? WarpEndPenalty : 0);
+                // Warps are never a via, and only an explicitly allowed goal may be one; a
+                // ring tile next to an object must never be a map exit either.
+                if (nextInfo.IsWarp && !(options.AllowWarpEnd && goal == next))
+                    continue;
+                int nextCost = flood.Cost[current] + nextInfo.Cost;
                 if (flood.Cost.TryGetValue(next, out int known) && known <= nextCost)
                     continue;
                 flood.Cost[next] = nextCost;
@@ -426,7 +446,7 @@ internal static class FootPathfinder
         nodes.Reverse();
         foreach (Point node in nodes)
         {
-            TileInfo info = flood.Tiles[node];
+            ProbeInfo info = flood.Tiles[node];
             if (info.Clearable)
                 plan.Obstacles.Add(new Obstacle(node, info.Kind, info.Name, info.ToolName));
         }
@@ -435,17 +455,27 @@ internal static class FootPathfinder
         return plan;
     }
 
-    private static void FillUnreachable(FootPlan plan, Flood flood, Point goal)
+    /// <summary>
+    /// Explain an unreachable goal. <paramref name="goalIsDestination"/>: the goal tile itself
+    /// was requested (so what sits on it is the blocker); for a tracked object the goal is the
+    /// object's own tile and naming it would be nonsense. The nearest reachable tile is one the
+    /// player can actually stand on: no obstacle, no warp.
+    /// </summary>
+    private static void FillUnreachable(FootPlan plan, Flood flood, Point goal, bool goalIsDestination)
     {
-        if (flood.Tiles.TryGetValue(goal, out TileInfo? goalInfo) && goalInfo.Kind == ObstacleKind.Wall && goalInfo.Name.Length > 0)
-            plan.BlockedBy = goalInfo.ToolName.Length > 0
-                ? Translator.Instance.Translate("feature-object_tracker-obstacle-needs_better_tool", new { name = goalInfo.Name, tool = goalInfo.ToolName })
-                : goalInfo.Name;
+        if (goalIsDestination && flood.Tiles.TryGetValue(goal, out ProbeInfo? goalInfo)
+            && goalInfo.Kind == ObstacleKind.Wall && goalInfo.Name.Length > 0)
+        {
+            plan.BlockedBy = goalInfo.ToolName.Length > 0 ? $"{goalInfo.Name}, {goalInfo.ToolName}" : goalInfo.Name;
+        }
 
         int bestDistance = int.MaxValue;
         Point? best = null;
         foreach ((Point tile, int _) in flood.Cost)
         {
+            ProbeInfo info = flood.Tiles[tile];
+            if (info.IsWarp || (info.Kind != ObstacleKind.Clear && info.Kind != ObstacleKind.Bridge))
+                continue;
             int distance = Math.Abs(tile.X - goal.X) + Math.Abs(tile.Y - goal.Y);
             if (distance < bestDistance)
             {
@@ -471,7 +501,7 @@ internal static class FootPathfinder
             return BuildPlan(flood, start, goal);
 
         FootPlan plan = new() { Destination = goal };
-        FillUnreachable(plan, flood, goal);
+        FillUnreachable(plan, flood, goal, goalIsDestination: true);
         return plan;
     }
 
@@ -509,7 +539,7 @@ internal static class FootPathfinder
         }
 
         FootPlan plan = new() { Destination = target };
-        FillUnreachable(plan, flood, target);
+        FillUnreachable(plan, flood, target, goalIsDestination: false);
         return plan;
     }
 

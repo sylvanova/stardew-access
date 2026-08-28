@@ -20,6 +20,14 @@ public class TileInfo
 {
     private static readonly HashSet<string> trackable_machines;
     private static readonly Dictionary<int, string> ResourceClumpNameTranslationKeys = [];
+
+    /// <summary>Spoken name for a resource clump by parent sheet index, as the tile viewer says it.</summary>
+    internal static string GetResourceClumpName(int parentSheetIndex)
+    {
+        if (ResourceClumpNameTranslationKeys.TryGetValue(parentSheetIndex, out string? translationKey))
+            return Translator.Instance.Translate(translationKey);
+        return Translator.Instance.Translate("tile-resource_clump-unknown", new { id = parentSheetIndex });
+    }
     private static readonly Dictionary<string, (string category, string itemName)> QualifiedItemIds = [];
     private static readonly Dictionary<string, Dictionary<(int, int), string>> BundleLocations = [];
     private static HashSet<Vector2> _visitedCollisionTiles = new HashSet<Vector2>();

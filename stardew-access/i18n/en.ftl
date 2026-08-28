@@ -56,17 +56,11 @@ feature-object_tracker-obstacle_ahead = {$name} ahead at {$x}, {$y}{$tool ->
 feature-object_tracker-obstacle_cleared_continuing = Continuing.
 feature-object_tracker-obstacle_cleared = Path clear.
 feature-object_tracker-auto_walk_cancelled = Auto walk cancelled.
-feature-object_tracker-obstacle-needs_better_tool = {$name}, needs a better {$tool}
+feature-object_tracker-obstacle-needs_better_tool = needs a better {$tool}
+feature-object_tracker-obstacle-needs_tool = needs a {$tool}
 feature-object_tracker-obstacle-any_tool = any tool
 feature-object_tracker-obstacle-closed_gate = Closed gate
 feature-object_tracker-obstacle-tree = Tree
-feature-object_tracker-obstacle-giant_crop = Giant crop
-feature-object_tracker-obstacle-mine_rock = Large rock
-feature-object_tracker-obstacle-stump = Large stump
-feature-object_tracker-obstacle-hollow_log = Hollow log
-feature-object_tracker-obstacle-boulder = Boulder
-feature-object_tracker-obstacle-meteorite = Meteorite
-feature-object_tracker-obstacle-clump = Large object
 feature-object_tracker-obstacle-lava = Lava
 
 ## Tile Viewer
