@@ -83,6 +83,9 @@ internal class ObjectTracker : FeatureBase
         public GameLocation Location = null!;
     }
     private NearestOffer? nearestOffer;
+    // True while the current walk was started from the tile viewer (walk-to-tile key): its
+    // end is announced as reached/stopped instead of reading the tracker's selected object.
+    private bool tileWalk;
     private const int MaxFootLegs = 60;
     // Walking this far from the obstacle while waiting means the player gave up on it.
     private const int FootWaitAbandonDistance = 6;
@@ -719,7 +722,15 @@ internal class ObjectTracker : FeatureBase
         }
 
         if (lastTargetedTile != null) FacePlayerToTargetTile(lastTargetedTile.Value);
-        ReadCurrentlySelectedObject();
+        if (tileWalk)
+        {
+            bool arrived = lastTargetedTile != null && Game1.player.TilePoint == lastTargetedTile.Value.ToPoint();
+            MainClass.ScreenReader.TranslateAndSay(arrived ? "feature-tile_viewer-reached" : "feature-tile_viewer-stopped_moving", true);
+        }
+        else
+        {
+            ReadCurrentlySelectedObject();
+        }
         GetLocationObjects(resetFocus: SortByProximity);
         pathfinder?.Dispose();
     }
@@ -1064,6 +1075,7 @@ internal class ObjectTracker : FeatureBase
         {
             ReadCurrentlySelectedObject();
         }
+        tileWalk = false;
         StartMove(GetCurrentlySelectedObject());
     }
 
@@ -1079,6 +1091,7 @@ internal class ObjectTracker : FeatureBase
             nearestOffer = null;
         if (nearestOffer == null)
             SelectedCoordinates = tile.ToVector2();
+        tileWalk = true;
         StartMove(null);
     }
 
@@ -1176,7 +1189,10 @@ internal class ObjectTracker : FeatureBase
         if (plan.Path.Count == 0)
         {
             FacePlayerToTargetTile(plan.Destination.ToVector2());
-            ReadCurrentlySelectedObject();
+            if (tileWalk)
+                MainClass.ScreenReader.TranslateAndSay("feature-tile_viewer-reached", true);
+            else
+                ReadCurrentlySelectedObject();
             return;
         }
 
