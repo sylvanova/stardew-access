@@ -78,6 +78,10 @@ internal class ObjectTracker : FeatureBase
     // Set by the pathfinder's stop callback (which the watchdog may fire from its timer
     // thread); consumed in Update so every announcement and state change stays on the game thread.
     private volatile bool footLegArrived;
+    // Obstacle announcements are spoken a few ticks after the player turns to face the
+    // obstacle, queued behind (not interrupting) the read-tile speech that the turn triggers.
+    private int footAnnounceCountdown = -1;
+    private const int FootAnnounceDelayTicks = 6;
     // Favorites navigation is requested from a System.Timers callback; run it on the game thread.
     private volatile int pendingFavoriteNavigation = -1;
 
@@ -197,6 +201,22 @@ internal class ObjectTracker : FeatureBase
             }
         }
 
+        if (footAnnounceCountdown > 0 && --footAnnounceCountdown == 0)
+        {
+            footAnnounceCountdown = -1;
+            if (footRoute is { Waiting: true, Pending: { } obstacle })
+            {
+                MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-obstacle_ahead", false,
+                    translationTokens: new
+                    {
+                        name = obstacle.Name,
+                        x = obstacle.Tile.X,
+                        y = obstacle.Tile.Y,
+                        tool = obstacle.ToolName.Length > 0 ? obstacle.ToolName : "none"
+                    });
+            }
+        }
+
         if (e.IsMultipleOf(10))
             CheckFootRouteObstacle();
 
@@ -208,6 +228,7 @@ internal class ObjectTracker : FeatureBase
     private void CancelFootRoute()
     {
         footRoute = null;
+        footAnnounceCountdown = -1;
     }
 
     /// <summary>
@@ -352,17 +373,12 @@ internal class ObjectTracker : FeatureBase
         pathfinder.StartPathfinding(player, Game1.currentLocation, legEnd, leg, facing);
     }
 
+    /// <summary>Enter the waiting state; the speech itself is scheduled from Update.</summary>
     private void AnnounceObstacle(FootRoute route, Obstacle obstacle)
     {
         route.Waiting = true;
-        MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-obstacle_ahead", true,
-            translationTokens: new
-            {
-                name = obstacle.Name,
-                x = obstacle.Tile.X,
-                y = obstacle.Tile.Y,
-                tool = obstacle.ToolName.Length > 0 ? obstacle.ToolName : "none"
-            });
+        route.Pending = obstacle;
+        footAnnounceCountdown = FootAnnounceDelayTicks;
     }
 
     /// <summary>
