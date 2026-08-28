@@ -404,12 +404,6 @@ internal class ModConfig
     /// </summary>
     public int OTMaxObstaclesOnPath { get; set; } = 8;
 
-    /// <summary>
-    /// When a target cannot be reached at all, walk to the nearest reachable tile right away.
-    /// Off means the mod announces that tile and waits for a second press of the move key.
-    /// </summary>
-    public bool OTWalkToNearestReachable { get; set; } = false;
-
     #endregion
 
     #region Others

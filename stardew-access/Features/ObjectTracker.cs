@@ -314,16 +314,8 @@ internal class ObjectTracker : FeatureBase
                 distance = (int)GetDistance(near.ToVector2(), plan.Destination.ToVector2()),
                 direction = GetDirection(plan.Destination.ToVector2(), near.ToVector2())
             };
-            if (MainClass.Config.OTWalkToNearestReachable)
-            {
-                MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-no_path_walking_nearest", true, translationTokens: tokens);
-                WalkToNearestReachable(near, plan.Destination);
-            }
-            else
-            {
-                nearestOffer = new NearestOffer { Tile = near, Target = plan.Destination, Location = Game1.currentLocation };
-                MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-no_path_nearest", true, translationTokens: tokens);
-            }
+            nearestOffer = new NearestOffer { Tile = near, Target = plan.Destination, Location = Game1.currentLocation };
+            MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-no_path_nearest", true, translationTokens: tokens);
         }
         else
         {

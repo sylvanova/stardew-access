@@ -740,14 +740,6 @@ internal static class ModConfigMenu
             min: 1,
             max: 50
         );
-
-        configMenu.AddBoolOption(
-            manifest,
-            name: () => "Walk To Nearest Reachable",
-            tooltip: () => "When a target is completely unreachable, walk to the nearest reachable tile right away. Off: announce it and wait for a second press of the move key.",
-            getValue: () => config.OTWalkToNearestReachable,
-            setValue: value => config.OTWalkToNearestReachable = value
-        );
     }
 
     private static void AddOtherPage(IGenericModConfigMenuApi configMenu, IManifest manifest, ModConfig config)
