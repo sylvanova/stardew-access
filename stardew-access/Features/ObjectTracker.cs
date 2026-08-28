@@ -262,7 +262,7 @@ internal class ObjectTracker : FeatureBase
             return;
         }
 
-        MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-obstacle_cleared_continuing", true);
+        MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-obstacle_cleared_continuing", false);
         FootPlan plan = FootPathfinder.PlanTo(Game1.currentLocation, Game1.player.TilePoint, route.Target, route.AllowWarpEnd);
         if (plan.Path == null)
         {
