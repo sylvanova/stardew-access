@@ -2,7 +2,7 @@
 
 ### New Features
 
-- On-foot auto walk now routes through clearable obstacles instead of failing: stones, weeds, twigs, artifact spots, crates, mine rocks, closed gates and volcano lava (trees, stumps, logs and boulders optionally). It walks up to each one, names it and the tool it needs, and continues on its own once it is gone. "Could not find path" now says what blocks the way or how far the nearest reachable spot is from the target. New `otplan <x> <y>` console command prints a planned route. When the target is completely unreachable, pressing the move key again walks you to the nearest reachable spot. New object tracker settings: Path Through Obstacles, Auto Resume After Obstacle, Obstacles: Trees And Boulders, Obstacles In Mines, Max Obstacles On Path.
+- On-foot auto walk now routes through clearable obstacles instead of failing: stones, weeds, twigs, artifact spots, crates, mine rocks, closed gates and volcano lava (trees, stumps, logs and boulders optionally). It walks up to each one, names it and the tool it needs, and continues on its own once it is gone. "Could not find path" now says what blocks the way or how far the nearest reachable spot is from the target. New `otplan <x> <y>` console command prints a planned route. When the target is completely unreachable, pressing the move key again walks you to the nearest reachable spot. The tile viewer's walk-to-tile key now uses the same auto walk as the object tracker (obstacles, footsteps, cancel keys, nearest reachable spot) instead of its own plain walk. New object tracker settings: Path Through Obstacles, Auto Resume After Obstacle, Obstacles: Trees And Boulders, Obstacles In Mines, Max Obstacles On Path.
 
 ### Feature Updates
 

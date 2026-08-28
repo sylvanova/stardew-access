@@ -21,14 +21,10 @@ internal class TileViewer : FeatureBase
     private Vector2 _relativeOffsetLockPosition = Vector2.Zero;
     private Boolean _relativeOffsetLock = false;
     private Vector2 _prevPlayerPosition = Vector2.Zero, _prevFacing = Vector2.Zero;
-    private Vector2 _finalTile = Vector2.Zero;
-    private Vector2 _prevTile = Vector2.Zero;
     private bool _upKeyFlag = true;
     private bool _rightKeyFlag = true;
     private bool _downKeyFlag = true;
     private bool _leftKeyFlag = true;
-
-    public Boolean IsAutoWalking = false;
 
     private static TileViewer? instance;
     public new static TileViewer Instance
@@ -152,107 +148,16 @@ internal class TileViewer : FeatureBase
         }
         else if (MainClass.Config.AutoWalkToTileKey.JustPressed() && Context.IsPlayerFree)
         {
-            StartAutoWalking();
+            // The object tracker owns auto walking (obstacle legs, footsteps, cancel keys,
+            // nearest-reachable offer); walk-to-tile just feeds it the cursor tile.
+            ObjectTracker.Instance.WalkToTile(GetViewingTile().ToPoint());
         }
         else if (Game1.activeClickableMenu == null && MainClass.Config.OpenTileInfoMenuKey.JustPressed() && Context.IsPlayerFree)
         {
             Game1.activeClickableMenu = new TileInfoMenu((int)GetViewingTile().X, (int)GetViewingTile().Y);
         }
 
-        // Suppresses button presses (excluding certain buttons) if tile viewer is path finding
-        if (Game1.player.controller is null) return false;
-        if (!Instance.IsAutoWalking) return false;
-
-        if (MainClass.Config.OTCancelAutoWalking.JustPressed())
-        {
-#if DEBUG
-            Log.Verbose(
-                "OnButtonPressed: cancel auto walking button pressed, canceling auto walking for tile viewer.");
-#endif
-            StopAutoWalking(wasForced: true);
-            MainClass.ModHelper!.Input.Suppress(e.Button);
-        }
-        else if (InputUtils.IsAnyMovementKey(e.Button))
-        {
-#if DEBUG
-            Log.Verbose("OnButtonPressed: movement key pressed, canceling auto walking for tile viewer.");
-#endif
-            StopAutoWalking(wasForced: true);
-        }
-        else if (SButtonExtensions.IsUseToolButton(e.Button))
-        {
-#if DEBUG
-            Log.Verbose(
-                "OnButtonPressed: use tool button pressed, canceling auto walking for tile viewer.");
-#endif
-            StopAutoWalking(wasForced: true);
-            Game1.pressUseToolButton();
-        }
-        else if (SButtonExtensions.IsActionButton(e.Button))
-        {
-#if DEBUG
-            Log.Verbose("OnButtonPressed: action button pressed, canceling auto walking for tile viewer.");
-#endif
-            StopAutoWalking(wasForced: true);
-            Game1.pressActionButton(Game1.input.GetKeyboardState(), Game1.input.GetMouseState(),
-                Game1.input.GetGamePadState());
-        }
-
-        if (!InputUtils.IsAnyInventorySlotButton(e.Button)
-            && !InputUtils.IsToolbarSwapButton(e.Button)
-            && !e.Button.Equals(SButton.LeftControl))
-        {
-#if DEBUG
-            Log.Verbose(
-                $"OnButtonPressed: suppressing '{e.Button}' for object tracker/tile viewer auto walking as it is neither any inventory slot button nor the toolbar swap button");
-#endif
-            MainClass.ModHelper!.Input.Suppress(e.Button);
-        }
-
-        return true;
-    }
-
-    private void StartAutoWalking()
-    {
-        PathFindController controller = new(Game1.player, Game1.currentLocation, GetViewingTile().ToPoint(), Game1.player.FacingDirection)
-        {
-            allowPlayerPathingInEvent = true
-        };
-        if (controller.pathToEndPoint != null && controller.pathToEndPoint.Count > 0)
-        {
-            Game1.player.controller = controller;
-            IsAutoWalking = true;
-            _finalTile = GetViewingTile();
-            ReadTile.Instance.Pause();
-            MainClass.ScreenReader.TranslateAndSay("feature-tile_viewer-moving_to", true, new
-            {
-                tile_x = _finalTile.X,
-                tile_y = _finalTile.Y
-            });
-        }
-        else
-        {
-            _finalTile = GetViewingTile();
-            MainClass.ScreenReader.TranslateAndSay("feature-tile_viewer-cannot_move_to", true, new
-            {
-                tile_x = _finalTile.X,
-                tile_y = _finalTile.Y
-            });
-        }
-    }
-
-    /// <summary>
-    /// Stop the auto walk controller and reset variables 
-    /// </summary>
-    /// <param name="wasForced">Narrates a message if set to true.</param>
-    public void StopAutoWalking(bool wasForced = false)
-    {
-        _finalTile = Vector2.Zero;
-        IsAutoWalking = false;
-        Game1.player.controller = null;
-        ReadTile.Instance.Resume();
-        if (wasForced)
-            MainClass.ScreenReader.TranslateAndSay("feature-tile_viewer-stopped_moving", true);
+        return false;
     }
 
     // For currently unimplemented report panning of map in CarpenterMenu
@@ -405,24 +310,6 @@ internal class TileViewer : FeatureBase
         if (MainClass.Config.SnapMouse)
             SnapMouseToPlayer();
 
-        if (!IsAutoWalking) return;
-        if (Game1.activeClickableMenu != null)
-        {
-            StopAutoWalking();
-            return;
-        }
-
-        if (Vector2.Distance(_prevTile, CurrentPlayer.Position) >= 2f)
-        {
-            _prevTile = CurrentPlayer.Position;
-            Game1.player.checkForFootstep();
-        }
-
-        if (_finalTile != Vector2.Zero && _finalTile == CurrentPlayer.Position)
-        {
-            MainClass.ScreenReader.TranslateAndSay("feature-tile_viewer-reached", true);
-            StopAutoWalking();
-        }
     }
 
     private static bool AllowMouseSnap(Vector2 point)

@@ -1064,11 +1064,27 @@ internal class ObjectTracker : FeatureBase
         {
             ReadCurrentlySelectedObject();
         }
+        StartMove(GetCurrentlySelectedObject());
+    }
 
+    /// <summary>
+    /// Auto walk to an exact tile (tile viewer's walk-to-tile key). Shares the tracker's whole
+    /// walk: obstacle legs, footsteps, cancel keys, mounted planning and the nearest-reachable
+    /// offer. Pressing the key again on the tile that was just reported unreachable confirms
+    /// the offer; any other tile is a new destination.
+    /// </summary>
+    internal void WalkToTile(Point tile)
+    {
+        if (nearestOffer is { } offer && offer.Target != tile)
+            nearestOffer = null;
+        if (nearestOffer == null)
+            SelectedCoordinates = tile.ToVector2();
+        StartMove(null);
+    }
+
+    private void StartMove(SpecialObject? sObject)
+    {
         Farmer player = Game1.player;
-        SpecialObject? sObject = GetCurrentlySelectedObject();
-
-        Vector2 playerTile = player.Tile;
         Vector2? sObjectTile = (sObject != null) ? sObject.TileLocation : (Vector2?)null;
 
         if (player.isRidingHorse())
