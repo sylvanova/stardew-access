@@ -47,7 +47,8 @@ feature-object_tracker-favorite_default_cleared = Default favorites cleared
 feature-object_tracker-no_destination_selected = No destination selected
 feature-object_tracker-path_with_obstacles = Path found, {$tiles} tiles, obstacles: {$obstacles}.
 feature-object_tracker-too_many_obstacles = Path found, but {$count} obstacles in the way, more than the limit of {$limit}.
-feature-object_tracker-no_path_nearest = Could not find path. Nearest reachable point is {$distance} tiles {$direction} of the target.
+feature-object_tracker-no_path_nearest = Could not find path. Nearest reachable point is {$distance} tiles {$direction} of the target. Press the move key again to walk there.
+feature-object_tracker-no_path_walking_nearest = Could not find path. Walking to the nearest reachable point, {$distance} tiles {$direction} of the target.
 feature-object_tracker-no_path_blocked = Could not find path, blocked by {$blocker}.
 feature-object_tracker-obstacle_ahead = {$name} ahead at {$x}, {$y}{$tool ->
     [none] {""}

@@ -72,6 +72,17 @@ internal class ObjectTracker : FeatureBase
         public int Legs;
     }
     private FootRoute? footRoute;
+    /// <summary>
+    /// Offered after an unreachable target: the nearest tile the player can stand on. The next
+    /// press of the move key walks there; any other tracker action or a map change drops it.
+    /// </summary>
+    private sealed class NearestOffer
+    {
+        public Point Tile;
+        public Point Target;
+        public GameLocation Location = null!;
+    }
+    private NearestOffer? nearestOffer;
     private const int MaxFootLegs = 60;
     // Walking this far from the obstacle while waiting means the player gave up on it.
     private const int FootWaitAbandonDistance = 6;
@@ -298,19 +309,55 @@ internal class ObjectTracker : FeatureBase
         }
         else if (plan.NearestReachable is Point near && near != plan.Destination)
         {
-            Vector2 nearVector = near.ToVector2();
-            Vector2 goalVector = plan.Destination.ToVector2();
-            MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-no_path_nearest", true,
-                translationTokens: new
-                {
-                    distance = (int)GetDistance(nearVector, goalVector),
-                    direction = GetDirection(goalVector, nearVector)
-                });
+            var tokens = new
+            {
+                distance = (int)GetDistance(near.ToVector2(), plan.Destination.ToVector2()),
+                direction = GetDirection(plan.Destination.ToVector2(), near.ToVector2())
+            };
+            if (MainClass.Config.OTWalkToNearestReachable)
+            {
+                MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-no_path_walking_nearest", true, translationTokens: tokens);
+                WalkToNearestReachable(near, plan.Destination);
+            }
+            else
+            {
+                nearestOffer = new NearestOffer { Tile = near, Target = plan.Destination, Location = Game1.currentLocation };
+                MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-no_path_nearest", true, translationTokens: tokens);
+            }
         }
         else
         {
             MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-could_not_find_path", true);
         }
+    }
+
+    /// <summary>
+    /// Walk to the nearest reachable tile of an unreachable target, through obstacles like any
+    /// other route. The tile came from the planner's flood, so it is reachable; a failure here
+    /// means the map changed under us and is reported plainly rather than re-offered.
+    /// </summary>
+    private void WalkToNearestReachable(Point near, Point target)
+    {
+        nearestOffer = null;
+        FootPlan plan = FootPathfinder.PlanTo(Game1.currentLocation, Game1.player.TilePoint, near, allowWarpEnd: false);
+        if (plan.Path == null)
+        {
+            MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-could_not_find_path", true);
+            return;
+        }
+        if (TooManyObstacles(plan))
+            return;
+        if (plan.Path.Count == 0)
+        {
+            FacePlayerToTargetTile(target.ToVector2());
+            return;
+        }
+        if (plan.Obstacles.Count > 0)
+        {
+            MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-path_with_obstacles", false,
+                translationTokens: new { tiles = plan.Path.Count, obstacles = FootPathfinder.SummarizeObstacles(plan.Obstacles) });
+        }
+        WalkFootLeg(new FootRoute { Target = plan.Destination, AllowWarpEnd = false }, plan);
     }
 
     /// <summary>
@@ -827,6 +874,7 @@ internal class ObjectTracker : FeatureBase
 
     private void Cycle(CycleType cycleType, bool back = false, bool wrapAround = false)
     {
+        nearestOffer = null;
         if (!IsValidSelection())
             return;
 
@@ -1020,7 +1068,7 @@ internal class ObjectTracker : FeatureBase
     private void MoveToCurrentlySelectedObject()
     {
         Log.Debug("Attempt pathfinding.");
-        if (IsFocusValid())
+        if (nearestOffer == null && IsFocusValid())
         {
             ReadCurrentlySelectedObject();
         }
@@ -1077,6 +1125,16 @@ internal class ObjectTracker : FeatureBase
             pathfinder = null;
             player.controller = null;
             FixCharacterMovement();
+        }
+        if (nearestOffer is { } offer)
+        {
+            nearestOffer = null;
+            // A favorite pressed in between means a new target, not a confirmation.
+            if (SelectedCoordinates == null && ReferenceEquals(offer.Location, Game1.currentLocation))
+            {
+                WalkToNearestReachable(offer.Tile, offer.Target);
+                return;
+            }
         }
         FootPlan plan;
         bool allowWarpEnd = false;
