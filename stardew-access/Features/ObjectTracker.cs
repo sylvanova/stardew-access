@@ -59,6 +59,21 @@ internal class ObjectTracker : FeatureBase
     private int mountedReplanAttempts;       // guarded
     private const int MaxMountedReplans = 3;
 
+    // On-foot obstacle route (see Utils/FootPathfinder.cs). The walk is split at the first
+    // clearable obstacle; after the leg ends we wait for the player to clear that tile,
+    // then replan from wherever they stand. Game thread only.
+    private sealed class FootRoute
+    {
+        public Point Target;
+        public bool AllowWarpEnd;
+        public Obstacle? Pending;       // obstacle the current leg walks up to
+        public Point LegEnd;            // last tile of the current leg
+        public bool Waiting;            // leg finished, waiting for Pending to disappear
+        public int Legs;
+    }
+    private FootRoute? footRoute;
+    private const int MaxFootLegs = 60;
+
     /// <summary>Invalidate pending mounted-stall requests and start a new route generation.</summary>
     private void ResetMountedReplanState()
     {
@@ -136,6 +151,7 @@ internal class ObjectTracker : FeatureBase
                 #if DEBUG
                 Log.Verbose("ObjectTracker->Update: player isn't \"free\" to move, canceling auto walking.");
                 #endif
+                CancelFootRoute();
                 pathfinder.StopPathfinding();
                 Game1.player.completelyStopAnimatingOrDoingAction();
             }
@@ -155,8 +171,148 @@ internal class ObjectTracker : FeatureBase
 
         ConsumePendingMountedAction();
 
+        if (e.IsMultipleOf(10))
+            CheckFootRouteObstacle();
+
         if (e.IsMultipleOf(5))
             Tick();
+    }
+
+    /// <summary>Drop any on-foot obstacle route (leg in progress or waiting for a clear).</summary>
+    private void CancelFootRoute()
+    {
+        footRoute = null;
+    }
+
+    /// <summary>
+    /// While waiting at an obstacle: once its tile probes clear, replan from the player's
+    /// current tile to the original target and walk the next leg (or just report, when
+    /// auto-resume is off).
+    /// </summary>
+    private void CheckFootRouteObstacle()
+    {
+        if (footRoute is not { Waiting: true, Pending: { } pending })
+            return;
+        if (pathfinder?.IsActive == true || Game1.player.isRidingHorse())
+            return;
+        if (FootPathfinder.IsTileBlocked(Game1.currentLocation, pending.Tile))
+            return;
+
+        FootRoute route = footRoute;
+        route.Waiting = false;
+        route.Pending = null;
+        if (!MainClass.Config.OTAutoResumeAfterObstacle)
+        {
+            footRoute = null;
+            MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-obstacle_cleared", true);
+            return;
+        }
+
+        MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-obstacle_cleared_continuing", true);
+        FootPlan plan = FootPathfinder.PlanTo(Game1.currentLocation, Game1.player.TilePoint, route.Target, route.AllowWarpEnd);
+        if (plan.Path == null)
+        {
+            footRoute = null;
+            AnnounceNoFootPath(plan);
+            return;
+        }
+        WalkFootLeg(route, plan);
+    }
+
+    private void AnnounceNoFootPath(FootPlan plan)
+    {
+        if (plan.BlockedBy != null)
+        {
+            MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-no_path_blocked", true,
+                translationTokens: new { blocker = plan.BlockedBy });
+        }
+        else if (plan.NearestReachable is Point near && near != plan.Destination)
+        {
+            Vector2 nearVector = near.ToVector2();
+            Vector2 goalVector = plan.Destination.ToVector2();
+            MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-no_path_nearest", true,
+                translationTokens: new
+                {
+                    distance = (int)GetDistance(nearVector, goalVector),
+                    direction = GetDirection(goalVector, nearVector)
+                });
+        }
+        else
+        {
+            MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-could_not_find_path", true);
+        }
+    }
+
+    /// <summary>
+    /// Walk the plan up to (not onto) its first obstacle, facing it on arrival; with no
+    /// obstacle, walk the whole plan. A plan whose very first tile is the obstacle just
+    /// announces it and waits.
+    /// </summary>
+    private void WalkFootLeg(FootRoute route, FootPlan plan)
+    {
+        Farmer player = Game1.player;
+        footRoute = route;
+        route.Legs++;
+        if (route.Legs > MaxFootLegs)
+        {
+            footRoute = null;
+            MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-could_not_find_path", true);
+            return;
+        }
+
+        Obstacle? first = plan.Obstacles.Count > 0 ? plan.Obstacles[0] : null;
+        List<Point> nodes = [.. plan.Path!];
+        int legLength = first == null ? nodes.Count : nodes.IndexOf(first.Tile);
+        Point legEnd = legLength > 0 ? nodes[legLength - 1] : player.TilePoint;
+        Stack<Point> leg = new();
+        for (int i = legLength - 1; i >= 0; i--)
+            leg.Push(nodes[i]);
+
+        int facing = -1;
+        if (first != null)
+        {
+            int dx = first.Tile.X - legEnd.X, dy = first.Tile.Y - legEnd.Y;
+            facing = dy < 0 ? 0 : dx > 0 ? 1 : dy > 0 ? 2 : 3;
+        }
+
+        route.Pending = first;
+        route.LegEnd = legEnd;
+        route.Waiting = false;
+
+        if (leg.Count == 0)
+        {
+            // Already standing next to the obstacle (or at the destination).
+            if (first != null)
+            {
+                player.faceDirection(facing);
+                AnnounceObstacle(route, first);
+            }
+            else
+            {
+                FacePlayerToTargetTile(route.Target.ToVector2());
+                footRoute = null;
+                ReadCurrentlySelectedObject();
+            }
+            return;
+        }
+
+        ResetMountedReplanState();
+        pathfinder?.Dispose();
+        pathfinder = new(RetryPathfinding, StopPathfinding);
+        pathfinder.StartPathfinding(player, Game1.currentLocation, legEnd, leg, facing);
+    }
+
+    private void AnnounceObstacle(FootRoute route, Obstacle obstacle)
+    {
+        route.Waiting = true;
+        MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-obstacle_ahead", true,
+            translationTokens: new
+            {
+                name = obstacle.Name,
+                x = obstacle.Tile.X,
+                y = obstacle.Tile.Y,
+                tool = obstacle.ToolName.Length > 0 ? obstacle.ToolName : "none"
+            });
     }
 
     /// <summary>
@@ -242,7 +398,19 @@ internal class ObjectTracker : FeatureBase
     {
         base.OnButtonPressed(sender, e);
         bool cancelAutoWalkingPressed = MainClass.Config.OTCancelAutoWalking.JustPressed();
-        
+
+        if (footRoute is { Waiting: true } && (pathfinder == null || !pathfinder.IsActive))
+        {
+            if (cancelAutoWalkingPressed)
+            {
+                CancelFootRoute();
+                MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-auto_walk_cancelled", true);
+                MainClass.ModHelper!.Input.Suppress(e.Button);
+                return true;
+            }
+            return false;
+        }
+
         if (pathfinder != null && pathfinder.IsActive)
         {
             if (cancelAutoWalkingPressed)
@@ -250,6 +418,7 @@ internal class ObjectTracker : FeatureBase
                 #if DEBUG
                 Log.Verbose("ObjectTracker->HandleKeys: cancel auto walking pressed, canceling auto walking for object tracker.");
                 #endif
+                CancelFootRoute();
                 pathfinder.StopPathfinding();
                 MainClass.ModHelper!.Input.Suppress(e.Button);
                 return true;
@@ -260,6 +429,7 @@ internal class ObjectTracker : FeatureBase
                 #if DEBUG
                 Log.Verbose("ObjectTracker->HandleKeys: movement key pressed, canceling auto walking for object tracker.");
                 #endif
+                CancelFootRoute();
                 pathfinder.StopPathfinding();
                 MainClass.ModHelper!.Input.Suppress(e.Button);
                 return true;
@@ -269,6 +439,7 @@ internal class ObjectTracker : FeatureBase
                 #if DEBUG
                 Log.Verbose("ObjectTracker->HandleKeys: use tool button pressed, canceling auto walking for object tracker.");
                 #endif
+                CancelFootRoute();
                 pathfinder.StopPathfinding();
                 MainClass.ModHelper!.Input.Suppress(e.Button);
                 Game1.pressUseToolButton();
@@ -279,6 +450,7 @@ internal class ObjectTracker : FeatureBase
                 #if DEBUG
                 Log.Verbose("ObjectTracker->HandleKeys: action button pressed, canceling auto walking for object tracker.");
                 #endif
+                CancelFootRoute();
                 pathfinder.StopPathfinding();
                 MainClass.ModHelper!.Input.Suppress(e.Button);
                 Game1.pressActionButton(Game1.input.GetKeyboardState(), Game1.input.GetMouseState(),
@@ -302,6 +474,7 @@ internal class ObjectTracker : FeatureBase
     {
         // A route belongs to the location where it was calculated. Clear it before
         // refreshing the tracker so it can't move the player in the new map.
+        CancelFootRoute();
         if (pathfinder?.IsActive == true)
             pathfinder.StopPathfinding();
 
@@ -420,6 +593,27 @@ internal class ObjectTracker : FeatureBase
     {
         ResetMountedReplanState();
         FixCharacterMovement();
+
+        // A leg of an obstacle route ended. Only a stop ON the leg's last tile counts as
+        // arrival; a stall or stop anywhere else drops the route (the explicit cancel
+        // sites clear footRoute before calling us, so those never get here with one).
+        FootRoute? route = footRoute;
+        if (route is { Pending: { } pending, Waiting: false })
+        {
+            if (Game1.player.TilePoint == route.LegEnd && !Game1.player.isRidingHorse())
+            {
+                pathfinder?.Dispose();
+                GetLocationObjects(resetFocus: SortByProximity);
+                AnnounceObstacle(route, pending);
+                return;
+            }
+            footRoute = null;
+        }
+        else if (route != null)
+        {
+            footRoute = null; // final leg done
+        }
+
         if (lastTargetedTile != null) FacePlayerToTargetTile(lastTargetedTile.Value);
         ReadCurrentlySelectedObject();
         GetLocationObjects(resetFocus: SortByProximity);
@@ -778,6 +972,12 @@ internal class ObjectTracker : FeatureBase
             return;
         }
 
+        if (MainClass.Config.OTPathThroughObstacles)
+        {
+            MoveToCurrentlySelectedObjectThroughObstacles(player, sObject, sObjectTile);
+            return;
+        }
+
         Vector2? closestTile = SelectedCoordinates ?? (sObject is not null ? (sObject.PathfindingOverride != null ? GetClosestTilePath((Vector2)sObject.PathfindingOverride) : GetClosestTilePath(sObjectTile)) : null);
         SelectedCoordinates = null;
 
@@ -797,6 +997,65 @@ internal class ObjectTracker : FeatureBase
         {
             MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-could_not_find_path", true);
         }
+    }
+
+    /// <summary>On-foot walk using the obstacle-aware planner (see FootPathfinder).</summary>
+    private void MoveToCurrentlySelectedObjectThroughObstacles(Farmer player, SpecialObject? sObject, Vector2? sObjectTile)
+    {
+        CancelFootRoute();
+        FootPlan plan;
+        bool allowWarpEnd = false;
+        if (SelectedCoordinates is Vector2 selectedCoordinates)
+        {
+            allowWarpEnd = true;
+            plan = FootPathfinder.PlanTo(Game1.currentLocation, player.TilePoint, selectedCoordinates.ToPoint(), allowWarpEnd: true);
+        }
+        else
+        {
+            Vector2? target = sObject?.PathfindingOverride ?? sObjectTile;
+            if (target == null)
+            {
+                SelectedCoordinates = null;
+                MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-could_not_find_path", true);
+                return;
+            }
+            plan = FootPathfinder.PlanNextTo(Game1.currentLocation, player.TilePoint, target.Value.ToPoint());
+        }
+        SelectedCoordinates = null;
+
+        if (plan.Path == null)
+        {
+            AnnounceNoFootPath(plan);
+            return;
+        }
+
+        if (plan.Obstacles.Count > MainClass.Config.OTMaxObstaclesOnPath)
+        {
+            MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-too_many_obstacles", true,
+                translationTokens: new { count = plan.Obstacles.Count, limit = MainClass.Config.OTMaxObstaclesOnPath });
+            return;
+        }
+
+        if (plan.Path.Count == 0)
+        {
+            FacePlayerToTargetTile(plan.Destination.ToVector2());
+            ReadCurrentlySelectedObject();
+            return;
+        }
+
+        if (plan.Obstacles.Count == 0)
+        {
+            MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-moving_to", true,
+                translationTokens: new { object_x = plan.Destination.X, object_y = plan.Destination.Y });
+        }
+        else
+        {
+            MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-path_with_obstacles", true,
+                translationTokens: new { tiles = plan.Path.Count, obstacles = FootPathfinder.SummarizeObstacles(plan.Obstacles) });
+        }
+
+        FootRoute route = new() { Target = plan.Destination, AllowWarpEnd = allowWarpEnd };
+        WalkFootLeg(route, plan);
     }
 
     private void MoveToCurrentlySelectedObjectMounted(Farmer player, SpecialObject? sObject, Vector2? sObjectTile)

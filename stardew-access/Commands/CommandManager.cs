@@ -28,6 +28,7 @@ public class CommandManager
         {"warning", "Toggle warnings feature."},
         {"tts", "Toggles the screen reader/tts"},
         {"rlt", "Repeat the last spoken texts."},
+        {"otplan", "Plan an on-foot auto walk route to a tile without moving: otplan <x> <y>. Prints the route and its obstacles."},
         // Radar
         {"radar", "Toggle radar feature."},
         {"rdebug", "Toggle debugging in radar feature."},

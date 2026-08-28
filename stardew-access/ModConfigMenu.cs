@@ -698,6 +698,48 @@ internal static class ModConfigMenu
             getValue: () => config.OTRememberPosition,
             setValue: value => config.OTRememberPosition = value
         );
+
+        configMenu.AddBoolOption(
+            manifest,
+            name: () => "Path Through Obstacles",
+            tooltip: () => "On foot, auto walk routes through stones, weeds, twigs, mine rocks, crates, closed gates and lava, stopping at each one for you to clear it.",
+            getValue: () => config.OTPathThroughObstacles,
+            setValue: value => config.OTPathThroughObstacles = value
+        );
+
+        configMenu.AddBoolOption(
+            manifest,
+            name: () => "Auto Resume After Obstacle",
+            tooltip: () => "Continue walking automatically once an obstacle on the route is gone.",
+            getValue: () => config.OTAutoResumeAfterObstacle,
+            setValue: value => config.OTAutoResumeAfterObstacle = value
+        );
+
+        configMenu.AddBoolOption(
+            manifest,
+            name: () => "Obstacles: Trees And Boulders",
+            tooltip: () => "Also route through trees, stumps, logs, boulders, meteorites and giant crops when your tool can break them.",
+            getValue: () => config.OTAllowTreesAndBoulders,
+            setValue: value => config.OTAllowTreesAndBoulders = value
+        );
+
+        configMenu.AddBoolOption(
+            manifest,
+            name: () => "Obstacles In Mines",
+            tooltip: () => "Route through rocks in the mines too. Off means plain walking there.",
+            getValue: () => config.OTObstaclesInMines,
+            setValue: value => config.OTObstaclesInMines = value
+        );
+
+        configMenu.AddNumberOption(
+            manifest,
+            name: () => "Max Obstacles On Path",
+            tooltip: () => "Routes with more clearable obstacles than this are reported instead of walked.",
+            getValue: () => config.OTMaxObstaclesOnPath,
+            setValue: value => config.OTMaxObstaclesOnPath = value,
+            min: 1,
+            max: 50
+        );
     }
 
     private static void AddOtherPage(IGenericModConfigMenuApi configMenu, IManifest manifest, ModConfig config)

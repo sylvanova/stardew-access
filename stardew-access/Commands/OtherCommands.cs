@@ -1,5 +1,6 @@
 using stardew_access.Tiles;
 using stardew_access.Translation;
+using stardew_access.Utils;
 using StardewValley;
 
 namespace stardew_access.Commands;
@@ -14,6 +15,45 @@ public class OtherCommands
 
         Log.Info("Static tiles refreshed!");
     });*/
+
+    /// <summary>Plan an on-foot route to a tile and print it, without moving the player.</summary>
+    public static void PlanFootRoute_otplan(string[] args, bool fromChatBox = false)
+    {
+        void Out(string text)
+        {
+            if (fromChatBox) Game1.chatBox.addInfoMessage(text);
+            else Log.Info(text);
+        }
+
+        if (Game1.currentLocation == null || Game1.player == null)
+        {
+            Out("otplan: no location loaded.");
+            return;
+        }
+        if (args.Length < 2 || !int.TryParse(args[0], out int x) || !int.TryParse(args[1], out int y))
+        {
+            Out("Usage: otplan <x> <y>");
+            return;
+        }
+
+        var start = Game1.player.TilePoint;
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+        var plan = FootPathfinder.PlanTo(Game1.currentLocation, start, new Microsoft.Xna.Framework.Point(x, y), allowWarpEnd: true);
+        watch.Stop();
+
+        if (plan.Path == null)
+        {
+            Out($"otplan: no route from {start.X},{start.Y} to {x},{y} ({watch.ElapsedMilliseconds} ms)."
+                + (plan.BlockedBy != null ? $" Blocked by: {plan.BlockedBy}." : "")
+                + (plan.NearestReachable is { } near ? $" Nearest reachable: {near.X},{near.Y}." : ""));
+            return;
+        }
+
+        Out($"otplan: {plan.Path.Count} steps from {start.X},{start.Y} to {x},{y}, {plan.Obstacles.Count} obstacles ({watch.ElapsedMilliseconds} ms).");
+        Out("  route: " + string.Join(" ", plan.Path.Select(p => $"{p.X},{p.Y}")));
+        foreach (var obstacle in plan.Obstacles)
+            Out($"  obstacle at {obstacle.Tile.X},{obstacle.Tile.Y}: {obstacle.Kind} \"{obstacle.Name}\" tool: {obstacle.ToolName}");
+    }
 
     public static void RefreshScreenReader_refsr(string[] args, bool fromChatBox = false)
     {

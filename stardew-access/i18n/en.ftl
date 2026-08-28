@@ -45,6 +45,29 @@ feature-object_tracker-favorite_cleared = {$location_name} favorite {$favorite_n
 feature-object_tracker-favorite_set_as_default = Saving current favorites as default
 feature-object_tracker-favorite_default_cleared = Default favorites cleared
 feature-object_tracker-no_destination_selected = No destination selected
+feature-object_tracker-path_with_obstacles = Path found, {$tiles} tiles, obstacles: {$obstacles}.
+feature-object_tracker-too_many_obstacles = Path found, but {$count} obstacles in the way, more than the limit of {$limit}.
+feature-object_tracker-no_path_nearest = Could not find path. Nearest reachable point is {$distance} tiles {$direction} of the target.
+feature-object_tracker-no_path_blocked = Could not find path, blocked by {$blocker}.
+feature-object_tracker-obstacle_ahead = {$name} ahead at {$x}, {$y}{$tool ->
+    [none] {""}
+   *[other] , {$tool}
+    }.
+feature-object_tracker-obstacle_cleared_continuing = Continuing.
+feature-object_tracker-obstacle_cleared = Path clear.
+feature-object_tracker-auto_walk_cancelled = Auto walk cancelled.
+feature-object_tracker-obstacle-needs_better_tool = {$name}, needs a better {$tool}
+feature-object_tracker-obstacle-any_tool = any tool
+feature-object_tracker-obstacle-closed_gate = Closed gate
+feature-object_tracker-obstacle-tree = Tree
+feature-object_tracker-obstacle-giant_crop = Giant crop
+feature-object_tracker-obstacle-mine_rock = Large rock
+feature-object_tracker-obstacle-stump = Large stump
+feature-object_tracker-obstacle-hollow_log = Hollow log
+feature-object_tracker-obstacle-boulder = Boulder
+feature-object_tracker-obstacle-meteorite = Meteorite
+feature-object_tracker-obstacle-clump = Large object
+feature-object_tracker-obstacle-lava = Lava
 
 ## Tile Viewer
 

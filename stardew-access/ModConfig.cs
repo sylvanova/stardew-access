@@ -377,6 +377,33 @@ internal class ModConfig
     /// </summary>
     public bool OTRememberPosition { get; set; } = true;
 
+    /// <summary>
+    /// On foot, plan routes through clearable obstacles (stones, weeds, twigs, mine rocks,
+    /// crates, closed gates, lava) and stop at each one so the player can clear it.
+    /// </summary>
+    public bool OTPathThroughObstacles { get; set; } = true;
+
+    /// <summary>
+    /// Continue the walk automatically once an obstacle on the route has been cleared.
+    /// </summary>
+    public bool OTAutoResumeAfterObstacle { get; set; } = true;
+
+    /// <summary>
+    /// Also treat trees, stumps, hollow logs, boulders, meteorites and giant crops as clearable
+    /// obstacles (when the player carries a good enough tool).
+    /// </summary>
+    public bool OTAllowTreesAndBoulders { get; set; } = false;
+
+    /// <summary>
+    /// Path through rocks in the mines too. Off means plain walking there.
+    /// </summary>
+    public bool OTObstaclesInMines { get; set; } = true;
+
+    /// <summary>
+    /// Routes with more clearable obstacles than this are reported instead of walked.
+    /// </summary>
+    public int OTMaxObstaclesOnPath { get; set; } = 8;
+
     #endregion
 
     #region Others
