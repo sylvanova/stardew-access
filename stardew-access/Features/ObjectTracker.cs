@@ -66,6 +66,7 @@ internal class ObjectTracker : FeatureBase
     {
         public Point Target;
         public bool AllowWarpEnd;
+        public bool IgnoreObstacleLimit; // confirmed by a second press: replans skip the limit
         public Obstacle? Pending;       // obstacle the current leg walks up to
         public Point LegEnd;            // last tile of the current leg
         public bool Waiting;            // leg finished, waiting for Pending to disappear
@@ -73,16 +74,19 @@ internal class ObjectTracker : FeatureBase
     }
     private FootRoute? footRoute;
     /// <summary>
-    /// Offered after an unreachable target: the nearest tile the player can stand on. The next
-    /// press of the move key walks there; any other tracker action or a map change drops it.
+    /// A walk the tracker refused but offers on a second press of the move key: the nearest
+    /// standable tile of an unreachable target, or a route with more obstacles than the
+    /// configured limit. Any other tracker action or a map change drops it.
     /// </summary>
-    private sealed class NearestOffer
+    private sealed class WalkOffer
     {
-        public Point Tile;
-        public Point Target;
+        public Point Destination;       // where the confirming press walks to
+        public Point Target;            // what the player asked for (tile viewer matches on it)
         public GameLocation Location = null!;
+        public bool AllowWarpEnd;
+        public bool IgnoreObstacleLimit;
     }
-    private NearestOffer? nearestOffer;
+    private WalkOffer? walkOffer;
     // True while the current walk was started from the tile viewer (walk-to-tile key): its
     // end is announced as reached/stopped instead of reading the tracker's selected object.
     private bool tileWalk;
@@ -284,7 +288,7 @@ internal class ObjectTracker : FeatureBase
             AnnounceNoFootPath(plan);
             return;
         }
-        if (TooManyObstacles(plan))
+        if (!route.IgnoreObstacleLimit && TooManyObstacles(plan, route.Target, route.AllowWarpEnd))
         {
             footRoute = null;
             return;
@@ -292,12 +296,24 @@ internal class ObjectTracker : FeatureBase
         WalkFootLeg(route, plan);
     }
 
-    /// <summary>Speak and refuse a plan with more clearable obstacles than the configured limit.</summary>
-    private static bool TooManyObstacles(FootPlan plan)
+    /// <summary>
+    /// Speak and refuse a plan with more clearable obstacles than the configured limit, and
+    /// offer the same walk on the next press of the move key (the limit is then skipped for
+    /// the whole route).
+    /// </summary>
+    private bool TooManyObstacles(FootPlan plan, Point target, bool allowWarpEnd)
     {
         int limit = MainClass.Config.OTMaxObstaclesOnPath;
         if (plan.Obstacles.Count <= limit)
             return false;
+        walkOffer = new WalkOffer
+        {
+            Destination = plan.Destination,
+            Target = target,
+            Location = Game1.currentLocation,
+            AllowWarpEnd = allowWarpEnd,
+            IgnoreObstacleLimit = true,
+        };
         MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-too_many_obstacles", true,
             translationTokens: new { count = plan.Obstacles.Count, limit });
         return true;
@@ -317,7 +333,7 @@ internal class ObjectTracker : FeatureBase
                 distance = (int)GetDistance(near.ToVector2(), plan.Destination.ToVector2()),
                 direction = GetDirection(plan.Destination.ToVector2(), near.ToVector2())
             };
-            nearestOffer = new NearestOffer { Tile = near, Target = plan.Destination, Location = Game1.currentLocation };
+            walkOffer = new WalkOffer { Destination = near, Target = plan.Destination, Location = Game1.currentLocation };
             MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-no_path_nearest", true, translationTokens: tokens);
         }
         else
@@ -327,24 +343,26 @@ internal class ObjectTracker : FeatureBase
     }
 
     /// <summary>
-    /// Walk to the nearest reachable tile of an unreachable target, through obstacles like any
-    /// other route. The tile came from the planner's flood, so it is reachable; a failure here
-    /// means the map changed under us and is reported plainly rather than re-offered.
+    /// Walk a confirmed offer: the nearest reachable tile of an unreachable target (through
+    /// obstacles like any other route, limit still applies and may offer once more), or a
+    /// route with too many obstacles (limit skipped). The destination came from a plan a
+    /// moment ago, so a missing path here means the map changed under us and is reported
+    /// plainly rather than re-offered.
     /// </summary>
-    private void WalkToNearestReachable(Point near, Point target)
+    private void WalkOfferedRoute(WalkOffer offer)
     {
-        nearestOffer = null;
-        FootPlan plan = FootPathfinder.PlanTo(Game1.currentLocation, Game1.player.TilePoint, near, allowWarpEnd: false);
+        walkOffer = null;
+        FootPlan plan = FootPathfinder.PlanTo(Game1.currentLocation, Game1.player.TilePoint, offer.Destination, offer.AllowWarpEnd);
         if (plan.Path == null)
         {
             MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-could_not_find_path", true);
             return;
         }
-        if (TooManyObstacles(plan))
+        if (!offer.IgnoreObstacleLimit && TooManyObstacles(plan, offer.Target, offer.AllowWarpEnd))
             return;
         if (plan.Path.Count == 0)
         {
-            FacePlayerToTargetTile(target.ToVector2());
+            FacePlayerToTargetTile(offer.Target.ToVector2());
             return;
         }
         if (plan.Obstacles.Count > 0)
@@ -352,7 +370,7 @@ internal class ObjectTracker : FeatureBase
             MainClass.ScreenReader.TranslateAndSay("feature-object_tracker-path_with_obstacles", false,
                 translationTokens: new { tiles = plan.Path.Count, obstacles = FootPathfinder.SummarizeObstacles(plan.Obstacles) });
         }
-        WalkFootLeg(new FootRoute { Target = plan.Destination, AllowWarpEnd = false }, plan);
+        WalkFootLeg(new FootRoute { Target = plan.Destination, AllowWarpEnd = offer.AllowWarpEnd, IgnoreObstacleLimit = offer.IgnoreObstacleLimit }, plan);
     }
 
     /// <summary>
@@ -877,7 +895,7 @@ internal class ObjectTracker : FeatureBase
 
     private void Cycle(CycleType cycleType, bool back = false, bool wrapAround = false)
     {
-        nearestOffer = null;
+        walkOffer = null;
         if (!IsValidSelection())
             return;
 
@@ -1071,7 +1089,7 @@ internal class ObjectTracker : FeatureBase
     private void MoveToCurrentlySelectedObject()
     {
         Log.Debug("Attempt pathfinding.");
-        if (nearestOffer == null && IsFocusValid())
+        if (walkOffer == null && IsFocusValid())
         {
             ReadCurrentlySelectedObject();
         }
@@ -1087,9 +1105,9 @@ internal class ObjectTracker : FeatureBase
     /// </summary>
     internal void WalkToTile(Point tile)
     {
-        if (nearestOffer is { } offer && offer.Target != tile)
-            nearestOffer = null;
-        if (nearestOffer == null)
+        if (walkOffer is { } offer && offer.Target != tile)
+            walkOffer = null;
+        if (walkOffer == null)
             SelectedCoordinates = tile.ToVector2();
         tileWalk = true;
         StartMove(null);
@@ -1147,13 +1165,13 @@ internal class ObjectTracker : FeatureBase
             player.controller = null;
             FixCharacterMovement();
         }
-        if (nearestOffer is { } offer)
+        if (walkOffer is { } offer)
         {
-            nearestOffer = null;
+            walkOffer = null;
             // A favorite pressed in between means a new target, not a confirmation.
             if (SelectedCoordinates == null && ReferenceEquals(offer.Location, Game1.currentLocation))
             {
-                WalkToNearestReachable(offer.Tile, offer.Target);
+                WalkOfferedRoute(offer);
                 return;
             }
         }
@@ -1183,7 +1201,7 @@ internal class ObjectTracker : FeatureBase
             return;
         }
 
-        if (TooManyObstacles(plan))
+        if (TooManyObstacles(plan, plan.Destination, allowWarpEnd))
             return;
 
         if (plan.Path.Count == 0)
