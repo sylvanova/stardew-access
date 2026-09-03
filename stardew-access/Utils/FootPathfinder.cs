@@ -321,30 +321,48 @@ internal static class FootPathfinder
     }
 
     /// <summary>
-    /// Bridge planks are only walkable sideways, and only entered from an entrance tile or a
-    /// neighbouring plank: the game attaches <c>Farmer.bridge</c> when the box is fully inside
-    /// an entrance tile and then relaxes collision along the span while <c>onBridge</c>.
+    /// One step next to or across a suspension bridge, mirroring the game: the bridge attaches
+    /// (<c>Farmer.bridge</c>) only when the box sits inside an entrance tile; from there the
+    /// step onto the span ignores collision and from then on the game only keeps the box
+    /// inside the bridge row, so a walker on the planks moves sideways until an entrance. A
+    /// span tile that is open ground anyway (the Island North volcano path crosses the rope
+    /// bridge's row) is ordinary ground when reached any other way, with the bridge detached.
+    /// Entrance tiles themselves are ordinary ground: the row rule never applies to a box
+    /// standing on them.
     /// </summary>
-    private static bool BridgeEdgeAllowed(BridgeMap bridges, Point from, Point to, bool vertical)
+    /// <returns>Whether the step is legal, with <paramref name="onArrival"/> set when it lands on a plank with the bridge attached.</returns>
+    private static bool BridgeStep(BridgeMap bridges, Node from, Point to, bool vertical, ProbeInfo toInfo, out bool onArrival)
     {
-        bool fromSpan = bridges.Span.Contains(from);
+        onArrival = false;
         bool toSpan = bridges.Span.Contains(to);
-        if (!fromSpan && !toSpan)
+        if (from.OnBridge)
+        {
+            if (vertical || !(toSpan || bridges.Entrances.Contains(to)))
+                return false;
+            onArrival = toSpan;
             return true;
-        if (vertical)
-            return false;
-        if (toSpan)
-            return fromSpan || bridges.Entrances.Contains(from);
-        // Leaving the span: only onto a plank or an entrance.
-        return bridges.Entrances.Contains(to);
+        }
+        if (toSpan && !vertical && bridges.Entrances.Contains(from.Tile))
+        {
+            onArrival = true;
+            return true;
+        }
+        return toInfo.Walkable;
     }
 
     // --- Flood ----------------------------------------------------------------------
 
+    /// <summary>A flood node: the tile, and whether the suspension bridge is attached there.</summary>
+    private readonly record struct Node(Point Tile, bool OnBridge);
+
     private sealed class Flood
     {
+        /// <summary>Cheapest cost per tile over both bridge states.</summary>
         public readonly Dictionary<Point, int> Cost = [];
-        public readonly Dictionary<Point, Point> CameFrom = [];
+        /// <summary>The node that achieved <see cref="Cost"/> for a tile.</summary>
+        public readonly Dictionary<Point, Node> Best = [];
+        public readonly Dictionary<Node, int> NodeCost = [];
+        public readonly Dictionary<Node, Node> CameFrom = [];
         public readonly Dictionary<Point, ProbeInfo> Tiles = [];
         public bool BudgetExhausted;
     }
@@ -366,8 +384,6 @@ internal static class FootPathfinder
             if (!flood.Tiles.TryGetValue(tile, out ProbeInfo? info))
             {
                 info = Classify(location, tile, options, mapWidth, mapHeight);
-                if (bridges.Span.Contains(tile))
-                    Set(info, ObstacleKind.Bridge, false, CostClear, "", "");
                 flood.Tiles[tile] = info;
             }
             return info;
@@ -387,15 +403,19 @@ internal static class FootPathfinder
             flood.Tiles[requestedGoal] = goalInfo;
         }
 
-        PriorityQueue<Point, int> open = new();
+        // Standing on a plank mid-bridge, the game already has the bridge attached.
+        Node startNode = new(start, bridges.Span.Contains(start) && Game1.player.onBridge.Value);
+        PriorityQueue<Node, int> open = new();
         flood.Cost[start] = 0;
-        open.Enqueue(start, 0);
-        HashSet<Point> closed = [];
+        flood.Best[start] = startNode;
+        flood.NodeCost[startNode] = 0;
+        open.Enqueue(startNode, 0);
+        HashSet<Node> closed = [];
         int visited = 0;
 
         while (open.Count > 0)
         {
-            Point current = open.Dequeue();
+            Node current = open.Dequeue();
             if (!closed.Add(current))
                 continue;
             if (visited++ >= budget)
@@ -403,32 +423,44 @@ internal static class FootPathfinder
                 flood.BudgetExhausted = true;
                 break;
             }
-            if (goal is Point g && current == g)
+            if (goal is Point g && current.Tile == g)
                 break;
-            if (InfoAt(current).IsWarp && current != start)
+            if (InfoAt(current.Tile).IsWarp && current.Tile != start)
                 continue;
 
             for (int direction = 0; direction < 4; direction++)
             {
-                Point next = new(current.X + DeltaX[direction], current.Y + DeltaY[direction]);
+                Point next = new(current.Tile.X + DeltaX[direction], current.Tile.Y + DeltaY[direction]);
                 bool vertical = DeltaY[direction] != 0;
-                if (closed.Contains(next))
-                    continue;
                 ProbeInfo nextInfo = InfoAt(next);
-                if (!nextInfo.Walkable)
+                bool onArrival = false;
+                if (bridges.Any)
+                {
+                    if (!BridgeStep(bridges, current, next, vertical, nextInfo, out onArrival))
+                        continue;
+                }
+                else if (!nextInfo.Walkable)
                     continue;
-                if (bridges.Any && !BridgeEdgeAllowed(bridges, current, next, vertical))
+                Node nextNode = new(next, onArrival);
+                if (closed.Contains(nextNode))
                     continue;
                 // Warps are never a via, and only an explicitly allowed goal may be one; a
                 // ring tile next to an object must never be a map exit either.
                 if (nextInfo.IsWarp && !(options.AllowWarpEnd && goal == next))
                     continue;
-                int nextCost = flood.Cost[current] + nextInfo.Cost;
-                if (flood.Cost.TryGetValue(next, out int known) && known <= nextCost)
+                // A plank crossed with the bridge attached costs a plain step whatever sits under it.
+                int stepCost = nextInfo.Walkable ? nextInfo.Cost : CostClear;
+                int nextCost = flood.NodeCost[current] + stepCost;
+                if (flood.NodeCost.TryGetValue(nextNode, out int known) && known <= nextCost)
                     continue;
-                flood.Cost[next] = nextCost;
-                flood.CameFrom[next] = current;
-                open.Enqueue(next, nextCost);
+                flood.NodeCost[nextNode] = nextCost;
+                flood.CameFrom[nextNode] = current;
+                if (!flood.Cost.TryGetValue(next, out int tileKnown) || nextCost < tileKnown)
+                {
+                    flood.Cost[next] = nextCost;
+                    flood.Best[next] = nextNode;
+                }
+                open.Enqueue(nextNode, nextCost);
             }
         }
 
@@ -441,8 +473,8 @@ internal static class FootPathfinder
     {
         FootPlan plan = new() { Destination = destination, Path = new Stack<Point>() };
         List<Point> nodes = [];
-        for (Point node = destination; node != start; node = flood.CameFrom[node])
-            nodes.Add(node);
+        for (Node node = flood.Best[destination]; node.Tile != start; node = flood.CameFrom[node])
+            nodes.Add(node.Tile);
         nodes.Reverse();
         foreach (Point node in nodes)
         {
